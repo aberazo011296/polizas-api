@@ -23,11 +23,12 @@ logger = logging.getLogger(__name__)
 RENDER_DPI = 200
 
 # Factor de escala relativo al tamaño de renderizado del frontend (PDF.js).
-# PDF.js por defecto renderiza a 96 DPI (escala 1.0). Las coordenadas que
-# el usuario dibuja en el canvas corresponden a ese DPI.
+# PDF.js a scale=1.0 renderiza 1 punto PDF = 1 CSS pixel.
+# Los PDFs miden en puntos (72 puntos por pulgada), por lo que el canvas
+# del frontend equivale a 72 DPI.
 # Al rasterizar con PyMuPDF a RENDER_DPI, escalamos las coordenadas.
-FRONTEND_DPI = 96
-SCALE_FACTOR = RENDER_DPI / FRONTEND_DPI  # ≈ 2.083
+FRONTEND_DPI = 72
+SCALE_FACTOR = RENDER_DPI / FRONTEND_DPI  # ≈ 2.778
 
 
 def _configurar_tesseract():
@@ -67,11 +68,14 @@ def _extraer_texto_de_caja(imagen: Image.Image, caja: Caja) -> str:
 
     recorte = imagen.crop((x, y, x2, y2))
 
-    # OCR — lang='eng' funciona razonablemente en español para datos de pólizas
+    # psm 7 = una línea | psm 6 = bloque uniforme de texto (varias líneas)
+    altura_recorte = y2 - y
+    psm = 7 if altura_recorte < 60 else 6
+
     texto = pytesseract.image_to_string(
         recorte,
-        lang="eng",
-        config="--psm 7",  # psm 7 = una sola línea de texto
+        lang="spa",
+        config=f"--psm {psm}",
     ).strip()
 
     return texto
@@ -159,10 +163,15 @@ def extraer_variables(
 def _limpiar_texto(texto: str) -> str:
     """
     Limpia artefactos comunes del OCR en documentos de pólizas ecuatorianas.
+    - Une palabras cortadas con guión al final de línea (ej: "Coope-\nrativa" → "Cooperativa")
     - Elimina saltos de línea internos
     - Normaliza espacios múltiples
     - Elimina caracteres no imprimibles
     """
+    import re
+    # Unir palabras cortadas con guión: "palabra-\n" + "continuación" → "palabracontinuación"
+    texto = re.sub(r"-\s*\n\s*", "", texto)
+    # Reemplazar saltos de línea restantes por espacio
     texto = texto.replace("\n", " ").replace("\r", " ")
     # Eliminar caracteres no imprimibles excepto espacio
     texto = "".join(c for c in texto if c.isprintable())

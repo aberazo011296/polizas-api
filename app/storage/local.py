@@ -60,6 +60,20 @@ def listar_plantillas() -> list[dict[str, Any]]:
     return plantillas
 
 
+def actualizar_plantilla(plantilla_id: str, datos_nuevos: dict[str, Any]) -> dict[str, Any]:
+    """Actualiza campos de una plantilla existente. Preserva id y creado_en."""
+    datos = _leer_plantillas()
+    if plantilla_id not in datos:
+        raise PlantillaNoEncontradaError(f"Plantilla no encontrada: {plantilla_id}")
+    plantilla = datos[plantilla_id]
+    plantilla.update(datos_nuevos)
+    plantilla["id"] = plantilla_id  # garantizar que el id no cambie
+    datos[plantilla_id] = plantilla
+    _escribir_plantillas(datos)
+    logger.info("Plantilla actualizada: %s", plantilla_id)
+    return plantilla
+
+
 def eliminar_plantilla(plantilla_id: str) -> None:
     """Elimina una plantilla. Lanza PlantillaNoEncontradaError si no existe."""
     datos = _leer_plantillas()

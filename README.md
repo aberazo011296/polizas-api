@@ -45,10 +45,14 @@ Documentación interactiva: http://localhost:8000/docs
 
 ## Preparar el template .docx
 
-1. Abre `FONDO_DE_JUBILACION_DE_LA_CONTRALORIA__pdf_resultado_.docx` en Word
+El template es un archivo Word con marcadores `{{nombre_variable}}` donde deben aparecer los datos extraídos del PDF. Los nombres deben coincidir exactamente con los definidos en las cajas de la plantilla.
+
+1. Abre el documento Word base en Word o LibreOffice
 2. Reemplaza los valores variables por marcadores `{{nombre_variable}}`
-3. Usa los mismos nombres que definas en las cajas de la plantilla
-4. Guarda como `templates/generali_desgravamen.docx`
+3. Usa los mismos nombres que definiste en las cajas de la plantilla
+4. Sube el archivo desde la interfaz web al crear la plantilla (paso 4 del wizard), o manualmente via API: `POST /plantillas/{id}/template`
+
+El archivo se guarda automáticamente como `templates/{aseguradora}_{tipo_poliza}.docx`.
 
 **Marcadores estándar para Generali Desgravamen:**
 ```
@@ -85,7 +89,14 @@ curl -X POST http://localhost:8000/plantillas \
       {"nombre": "contratante", "pagina": 1, "x": 50, "y": 180, "ancho": 500, "alto": 25}
     ]
   }'
+
+# 3. Subir el template .docx para esa plantilla
+curl -X POST http://localhost:8000/plantillas/<ID_DE_PLANTILLA>/template \
+  -F "archivo=@mi_template.docx"
+# El archivo se guarda automáticamente como templates/generali_desgravamen.docx
 ```
+
+> **Nota:** También puedes hacer esto desde la interfaz web — el wizard de "Nueva plantilla" incluye el paso de subir el `.docx` al final.
 
 ### Uso normal (generar certificado)
 
