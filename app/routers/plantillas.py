@@ -3,12 +3,19 @@ Router: /plantillas
 
 CRUD de plantillas de extracción.
 """
+import io
+import json
 import logging
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+import re
+import zipfile
+
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 
 from app.core.config import settings
 from app.core.errors import PlantillaNoEncontradaError
 from app.models.plantilla import Plantilla, PlantillaCrear, PlantillaResumen
+from app.services.template_builder import construir_template
 from app.storage.local import (
     actualizar_plantilla,
     eliminar_plantilla,
@@ -19,6 +26,25 @@ from app.storage.local import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/plantillas", tags=["plantillas"])
+
+
+def _limpiar_template_docx(contenido: bytes) -> bytes:
+    """Elimina marcadores Jinja2 vacíos {{}} del XML del documento."""
+    try:
+        buf_in = io.BytesIO(contenido)
+        buf_out = io.BytesIO()
+        with zipfile.ZipFile(buf_in, 'r') as zin, \
+             zipfile.ZipFile(buf_out, 'w', zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                data = zin.read(item.filename)
+                if item.filename == 'word/document.xml':
+                    xml = data.decode('utf-8')
+                    xml = re.sub(r'\{\{\s*\}\}', '', xml)
+                    data = xml.encode('utf-8')
+                zout.writestr(item, data)
+        return buf_out.getvalue()
+    except Exception:
+        return contenido
 
 
 @router.get(
@@ -107,6 +133,73 @@ def actualizar(plantilla_id: str, body: PlantillaCrear):
         )
 
 
+@router.get(
+    "/{plantilla_id}/template",
+    summary="Descargar template .docx de una plantilla",
+)
+def descargar_template(plantilla_id: str):
+    try:
+        plantilla = obtener_plantilla(plantilla_id)
+    except PlantillaNoEncontradaError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"Plantilla '{plantilla_id}' no encontrada")
+
+    nombre_archivo = f"{plantilla['aseguradora'].lower()}_{plantilla['tipo_poliza'].lower()}.docx"
+    ruta = settings.templates_dir / nombre_archivo
+
+    if not ruta.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="No hay template subido para esta plantilla")
+
+    return FileResponse(path=str(ruta), filename=nombre_archivo,
+                        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+@router.post(
+    "/{plantilla_id}/template/build",
+    summary="Construir template a partir de documento real con reemplazos",
+    status_code=status.HTTP_200_OK,
+)
+async def construir_template_desde_doc(
+    plantilla_id: str,
+    archivo: UploadFile = File(...),
+    reemplazos: str = Form(...),  # JSON: {"variable": "texto_original"}
+):
+    """
+    Recibe el documento Word original y un mapa de reemplazos.
+    Genera el template .docx con {{variable}} preservando el formato.
+    """
+    try:
+        plantilla = obtener_plantilla(plantilla_id)
+    except PlantillaNoEncontradaError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"Plantilla '{plantilla_id}' no encontrada")
+
+    try:
+        mapa = json.loads(reemplazos)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="El campo 'reemplazos' debe ser JSON válido")
+
+    # Detectar variables de bloque (alto > 40px en el canvas = párrafos multi-línea)
+    try:
+        p = obtener_plantilla(plantilla_id)
+        variables_bloque = {c["nombre"] for c in p.get("cajas", []) if c.get("alto", 0) > 40}
+    except Exception:
+        variables_bloque = set()
+
+    contenido = await archivo.read()
+    template_bytes = construir_template(contenido, mapa, variables_bloque)
+    template_bytes = _limpiar_template_docx(template_bytes)
+
+    nombre_archivo = f"{plantilla['aseguradora'].lower()}_{plantilla['tipo_poliza'].lower()}.docx"
+    settings.templates_dir.mkdir(parents=True, exist_ok=True)
+    (settings.templates_dir / nombre_archivo).write_bytes(template_bytes)
+
+    logger.info("Template construido con reemplazos: %s → %s", list(mapa.keys()), nombre_archivo)
+    return {"archivo": nombre_archivo, "variables": list(mapa.keys())}
+
+
 @router.post(
     "/{plantilla_id}/template",
     summary="Subir template .docx para una plantilla",
@@ -136,6 +229,7 @@ async def subir_template(plantilla_id: str, archivo: UploadFile = File(...)):
     ruta = settings.templates_dir / nombre_archivo
 
     contenido = await archivo.read()
+    contenido = _limpiar_template_docx(contenido)
     ruta.write_bytes(contenido)
 
     logger.info("Template subido: %s", nombre_archivo)

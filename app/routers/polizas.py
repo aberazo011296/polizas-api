@@ -69,9 +69,10 @@ async def upload_poliza(
     # Extraer
     from app.models.plantilla import Caja
     cajas = [Caja(**c) for c in plantilla_dict["cajas"]]
+    campos_manuales = plantilla_dict.get("campos_manuales", [])
 
     try:
-        resultado = extraer_variables(pdf_bytes, cajas)
+        resultado = extraer_variables(pdf_bytes, cajas, campos_manuales)
     except PDFInvalidoError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

@@ -14,12 +14,19 @@ class Caja(BaseModel):
     alto: float = Field(..., gt=0)
 
 
+class CampoManual(BaseModel):
+    """Campo de entrada manual — no se extrae del PDF, el usuario lo completa."""
+    nombre: str = Field(..., description="Nombre de la variable, ej: 'nombre_asegurado'")
+    valor_por_defecto: str = Field(default="", description="Valor pre-rellenado al procesar")
+
+
 class PlantillaCrear(BaseModel):
     """Payload para crear una nueva plantilla."""
     nombre: str = Field(..., min_length=1, max_length=100)
     aseguradora: str = Field(..., min_length=1, max_length=50)
     tipo_poliza: str = Field(..., min_length=1, max_length=50)
     cajas: list[Caja] = Field(..., min_length=1)
+    campos_manuales: list[CampoManual] = Field(default=[])
 
 
 class Plantilla(PlantillaCrear):

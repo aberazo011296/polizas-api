@@ -19,8 +19,8 @@ from app.models.plantilla import Caja, ResultadoExtraccion, Variable
 
 logger = logging.getLogger(__name__)
 
-# DPI para rasterizar páginas — 200 dpi es buen balance velocidad/precisión
-RENDER_DPI = 200
+# DPI para rasterizar páginas — 300 DPI es el óptimo para Tesseract OCR
+RENDER_DPI = 300
 
 # Factor de escala relativo al tamaño de renderizado del frontend (PDF.js).
 # PDF.js a scale=1.0 renderiza 1 punto PDF = 1 CSS pixel.
@@ -29,6 +29,40 @@ RENDER_DPI = 200
 # Al rasterizar con PyMuPDF a RENDER_DPI, escalamos las coordenadas.
 FRONTEND_DPI = 72
 SCALE_FACTOR = RENDER_DPI / FRONTEND_DPI  # ≈ 2.778
+
+
+def _preprocesar_imagen(img: Image.Image) -> Image.Image:
+    """
+    Mejora la imagen antes de OCR:
+    - Escala al doble para dar más resolución a Tesseract
+    - Convierte a escala de grises
+    - Binariza con umbral adaptativo
+    """
+    # Escalar x2
+    w, h = img.size
+    img = img.resize((w * 2, h * 2), Image.LANCZOS)
+    # Convertir a gris y binarizar
+    img = img.convert("L")
+    # Umbral simple: pixeles < 180 → negro, resto → blanco
+    img = img.point(lambda p: 0 if p < 180 else 255, "1")
+    return img.convert("L")
+
+
+def _corregir_caracteres_espaciados(texto: str) -> str:
+    """
+    Corrige el caso en que el OCR separa cada carácter con espacio.
+    Ej: "9 9 0 6 6 4" → "990664", "0 1 / F e b / 2 0 2 6" → "01/Feb/2026"
+    Detecta cuando la mayoría de tokens son de 1-2 caracteres y los une.
+    """
+    lineas_corregidas = []
+    for linea in texto.split("\n"):
+        tokens = linea.split()
+        if len(tokens) >= 3:
+            tokens_cortos = sum(1 for t in tokens if len(t) <= 2)
+            if tokens_cortos / len(tokens) >= 0.7:
+                linea = "".join(tokens)
+        lineas_corregidas.append(linea)
+    return "\n".join(lineas_corregidas)
 
 
 def _configurar_tesseract():
@@ -68,6 +102,9 @@ def _extraer_texto_de_caja(imagen: Image.Image, caja: Caja) -> str:
 
     recorte = imagen.crop((x, y, x2, y2))
 
+    # Mejorar imagen antes de OCR: escalar al doble y binarizar
+    recorte = _preprocesar_imagen(recorte)
+
     # psm 7 = una línea | psm 6 = bloque uniforme de texto (varias líneas)
     altura_recorte = y2 - y
     psm = 7 if altura_recorte < 60 else 6
@@ -75,7 +112,7 @@ def _extraer_texto_de_caja(imagen: Image.Image, caja: Caja) -> str:
     texto = pytesseract.image_to_string(
         recorte,
         lang="spa",
-        config=f"--psm {psm}",
+        config=f"--psm {psm} --oem 3",
     ).strip()
 
     return texto
@@ -84,6 +121,7 @@ def _extraer_texto_de_caja(imagen: Image.Image, caja: Caja) -> str:
 def extraer_variables(
     pdf_bytes: bytes,
     cajas: list[Caja],
+    campos_manuales: list = None,
 ) -> ResultadoExtraccion:
     """
     Procesa un PDF y extrae el valor de cada caja usando OCR.
@@ -152,6 +190,31 @@ def extraer_variables(
 
     doc.close()
 
+    # Agregar campos manuales con su valor por defecto
+    from datetime import date
+    CAMPOS_AUTOMATICOS = {
+        "fecha_actual": lambda: date.today().strftime("%d/%m/%Y"),
+    }
+
+    for campo in (campos_manuales or []):
+        nombre = campo.get("nombre") if isinstance(campo, dict) else campo.nombre
+        valor = campo.get("valor_por_defecto", "") if isinstance(campo, dict) else campo.valor_por_defecto
+
+        # Campos con valor automático
+        if nombre in CAMPOS_AUTOMATICOS:
+            valor = CAMPOS_AUTOMATICOS[nombre]()
+            nota = "Generado automáticamente"
+        else:
+            nota = "Campo de ingreso manual"
+
+        variables.append(Variable(
+            nombre=nombre,
+            valor=valor or None,
+            origen="manual",
+            estado="ok" if valor else "falta",
+            nota=nota,
+        ))
+
     return ResultadoExtraccion(
         plantilla_id="",  # Se llena en el router
         variables=variables,
@@ -162,19 +225,27 @@ def extraer_variables(
 
 def _limpiar_texto(texto: str) -> str:
     """
-    Limpia artefactos comunes del OCR en documentos de pólizas ecuatorianas.
-    - Une palabras cortadas con guión al final de línea (ej: "Coope-\nrativa" → "Cooperativa")
-    - Elimina saltos de línea internos
-    - Normaliza espacios múltiples
+    Limpia artefactos del OCR preservando la estructura del texto.
+    - Une palabras cortadas con guión al final de línea (ej: "ca-\ndáver" → "cadáver")
+    - Preserva saltos de línea para mantener listas, ítems y párrafos
+    - Normaliza espacios dentro de cada línea
     - Elimina caracteres no imprimibles
     """
     import re
-    # Unir palabras cortadas con guión: "palabra-\n" + "continuación" → "palabracontinuación"
+
+    # 0. Corregir caracteres espaciados por OCR ("9 9 0 6 6 4" → "990664")
+    texto = _corregir_caracteres_espaciados(texto)
+
+    # 1. Unir palabras cortadas con guión al final de línea
     texto = re.sub(r"-\s*\n\s*", "", texto)
-    # Reemplazar saltos de línea restantes por espacio
-    texto = texto.replace("\n", " ").replace("\r", " ")
-    # Eliminar caracteres no imprimibles excepto espacio
-    texto = "".join(c for c in texto if c.isprintable())
-    # Colapsar espacios múltiples
-    texto = " ".join(texto.split())
+
+    # 2. Limpiar cada línea individualmente (espacios, no imprimibles)
+    lineas = texto.replace("\r", "").split("\n")
+    lineas = ["".join(c for c in linea if c.isprintable()) for linea in lineas]
+    lineas = [" ".join(linea.split()) for linea in lineas]  # normalizar espacios
+
+    # 3. Colapsar más de 2 saltos de línea consecutivos vacíos
+    texto = "\n".join(lineas)
+    texto = re.sub(r"\n{3,}", "\n\n", texto)
+
     return texto.strip()

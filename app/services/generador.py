@@ -58,7 +58,11 @@ def generar_certificado(
         raise ErrorGeneracionDocumento(f"Error abriendo template: {e}") from e
 
     # Identificar qué variables espera el template
-    variables_template = set(tpl.undeclared_template_variables)
+    # (puede fallar si el XML interno del doc tiene sintaxis Jinja2 inválida)
+    try:
+        variables_template = set(tpl.undeclared_template_variables)
+    except Exception:
+        variables_template = set(variables.keys())
 
     variables_usadas = []
     variables_faltantes = []
@@ -69,7 +73,6 @@ def generar_certificado(
             contexto[nombre] = variables[nombre]
             variables_usadas.append(nombre)
         else:
-            # Dejar el campo vacío en lugar de mostrar el marcador
             contexto[nombre] = ""
             variables_faltantes.append(nombre)
             logger.warning("Variable faltante en generación: %s", nombre)
