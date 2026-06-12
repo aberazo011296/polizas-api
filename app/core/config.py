@@ -13,6 +13,10 @@ class Settings(BaseSettings):
 
     tesseract_cmd: str | None = None
 
+    # Extracción automática con IA (si no hay key, se usan las cajas)
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-sonnet-4-6"
+
     # Tamaño máximo de PDF en bytes (10 MB)
     max_pdf_size_bytes: int = 10 * 1024 * 1024
 

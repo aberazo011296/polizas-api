@@ -55,14 +55,117 @@ def _reemplazar_en_xml(xml_bytes: bytes, items: list[tuple[str, str]]) -> bytes:
     """
     Reemplaza texto en el XML del documento fusionando runs adyacentes
     para manejar el caso en que Word divide el texto entre varios runs.
+
+    Los textos con saltos de línea (\\n) se tratan como bloques que
+    abarcan varios párrafos consecutivos: el primero se convierte en
+    {{variable}} y los demás se eliminan (al generar el certificado,
+    \\n en el valor vuelve a crear los párrafos necesarios).
     """
     root = etree.fromstring(xml_bytes)
 
-    # Procesar cada párrafo
+    items_simples = [(v, t) for v, t in items if "\n" not in t]
+    items_multilinea = [(v, t) for v, t in items if "\n" in t]
+
+    for variable, texto in items_multilinea:
+        _reemplazar_bloque_multilinea(root, variable, texto)
+
+    # Procesar cada párrafo (coincidencia exacta dentro del párrafo)
     for para in root.iter(f"{{{W}}}p"):
-        _reemplazar_en_parrafo(para, items)
+        _reemplazar_en_parrafo(para, items_simples)
+
+    # Segunda pasada: lo que no se reemplazó exacto se busca con
+    # comparación normalizada (sin espacios) a nivel de párrafos,
+    # tolerando diferencias de espaciado entre el PDF y el Word.
+    pendientes = _variables_sin_reemplazar(root, items)
+    for variable, texto in pendientes:
+        _reemplazar_bloque_multilinea(root, variable, texto)
 
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def _variables_sin_reemplazar(root, items):
+    """Items cuyo {{variable}} aún no aparece en el documento."""
+    texto_doc = "".join(t.text or "" for t in root.iter(f"{{{W}}}t"))
+    return [(v, t) for v, t in items if f"{{{{{v}}}}}" not in texto_doc]
+
+
+def _texto_de_parrafo(para) -> str:
+    """Texto plano completo de un párrafo (todos sus runs concatenados)."""
+    return "".join(
+        (t.text or "")
+        for t in para.findall(f".//{{{W}}}t")
+    )
+
+
+def _normalizar(texto: str) -> str:
+    """
+    Elimina todo el espaciado para comparar textos sin depender del
+    espaciado exacto (el PDF y el Word difieren en cosas como
+    "ingreso :" vs "ingreso:").
+    """
+    return re.sub(r"\s+", "", texto).lower()
+
+
+def _reemplazar_bloque_multilinea(root, variable: str, texto: str):
+    """
+    Busca una secuencia de párrafos consecutivos cuyo texto combinado
+    coincida (normalizado, en orden) con las líneas de `texto`. Cada
+    línea puede abarcar uno o varios párrafos. Reemplaza el primero por
+    {{variable}} y elimina los siguientes.
+    """
+    lineas = [_normalizar(l) for l in texto.split("\n") if l.strip()]
+    lineas = [l for l in lineas if l]
+    if not lineas:
+        return
+
+    for body in root.iter():
+        paras = [h for h in body if h.tag == f"{{{W}}}p"]
+        if not paras:
+            continue
+        textos = [_normalizar(_texto_de_parrafo(p)) for p in paras]
+
+        for inicio in range(len(paras)):
+            consumidos = _match_bloque(textos, inicio, lineas)
+            if consumidos:
+                _poner_texto_en_parrafo(paras[inicio], f"{{{{{variable}}}}}")
+                for p in paras[inicio + 1:inicio + consumidos]:
+                    body.remove(p)
+                return  # solo el primer match
+
+
+def _match_bloque(textos: list[str], inicio: int, lineas: list[str]) -> int:
+    """
+    Intenta consumir las `lineas` empezando en textos[inicio], donde cada
+    línea puede ocupar uno o varios párrafos consecutivos (concatenados).
+    Devuelve cuántos párrafos consume el bloque completo, o 0 si no calza.
+    """
+    i = inicio
+    for linea in lineas:
+        acumulado = ""
+        while i < len(textos) and len(acumulado) < len(linea):
+            if textos[i] == "":  # párrafos vacíos intermedios se saltan
+                i += 1
+                continue
+            acumulado += textos[i]
+            i += 1
+        if acumulado != linea:
+            return 0
+    return i - inicio
+
+
+def _poner_texto_en_parrafo(para, texto: str):
+    """Pone `texto` en el primer run del párrafo y vacía los demás."""
+    runs = para.findall(f".//{{{W}}}r")
+    if not runs:
+        return
+    t_elem = runs[0].find(f"{{{W}}}t")
+    if t_elem is None:
+        t_elem = etree.SubElement(runs[0], f"{{{W}}}t")
+    t_elem.text = texto
+    for run in runs[1:]:
+        t = run.find(f"{{{W}}}t")
+        if t is not None:
+            t.text = ""
 
 
 def _reemplazar_en_parrafo(para, items: list[tuple[str, str]]):

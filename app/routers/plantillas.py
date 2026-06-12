@@ -61,11 +61,28 @@ def listar():
             nombre=p["nombre"],
             aseguradora=p["aseguradora"],
             tipo_poliza=p["tipo_poliza"],
-            num_variables=len(p["cajas"]),
+            num_variables=len(p.get("variables") or p.get("cajas") or []),
             creado_en=p["creado_en"],
         )
         for p in plantillas
     ]
+
+
+def _validar_definicion(body: PlantillaCrear):
+    """La plantilla debe definir qué extraer, sin nombres repetidos."""
+    nombres = ([c.nombre for c in body.cajas]
+               + [v.nombre for v in body.variables]
+               + [m.nombre for m in body.campos_manuales])
+    if len(nombres) != len(set(nombres)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Hay nombres de variable duplicados",
+        )
+    if not body.cajas and not body.variables:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La plantilla debe tener al menos una variable",
+        )
 
 
 @router.post(
@@ -76,23 +93,57 @@ def listar():
 )
 def crear(body: PlantillaCrear):
     """
-    Guarda una nueva plantilla con sus cajas de extracción.
-
-    Las coordenadas de las cajas deben estar en pixels del canvas
-    frontend (PDF.js a escala 1.0, ~96 DPI).
+    Guarda una nueva plantilla. Las variables (nombre + descripción)
+    definen qué extrae la IA; las cajas con coordenadas son opcionales
+    (modo antiguo por posición).
     """
-    # Validar que no haya nombres de variable duplicados
-    nombres = [c.nombre for c in body.cajas]
-    if len(nombres) != len(set(nombres)):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Hay nombres de variable duplicados en las cajas",
-        )
+    _validar_definicion(body)
 
     plantilla = Plantilla(**body.model_dump())
     guardar_plantilla(plantilla.model_dump())
     logger.info("Nueva plantilla creada: %s (%s)", plantilla.nombre, plantilla.id)
     return plantilla
+
+
+@router.post(
+    "/sugerir-variables",
+    summary="Sugerir variables a partir de un PDF de ejemplo (IA)",
+    status_code=status.HTTP_200_OK,
+)
+async def sugerir_variables_endpoint(
+    archivo: UploadFile = File(..., description="PDF de póliza de ejemplo"),
+):
+    """
+    Lee un PDF de ejemplo con IA y propone la lista de variables
+    (nombre + descripción) para crear una plantilla. La persona luego
+    edita, renombra o elimina lo que no necesite.
+    """
+    if archivo.content_type not in ("application/pdf", "application/octet-stream"):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Solo se aceptan archivos PDF",
+        )
+    if not settings.anthropic_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="La sugerencia con IA requiere ANTHROPIC_API_KEY en el servidor",
+        )
+
+    pdf_bytes = await archivo.read()
+    from app.core.errors import PDFInvalidoError
+    from app.services.extractor_llm import sugerir_variables
+    try:
+        variables = sugerir_variables(pdf_bytes)
+    except PDFInvalidoError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except Exception as e:
+        logger.error("Error sugiriendo variables: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"No se pudieron sugerir variables: {e}",
+        )
+
+    return {"variables": variables}
 
 
 @router.get(
@@ -116,12 +167,7 @@ def obtener(plantilla_id: str):
     response_model=Plantilla,
 )
 def actualizar(plantilla_id: str, body: PlantillaCrear):
-    nombres = [c.nombre for c in body.cajas]
-    if len(nombres) != len(set(nombres)):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Hay nombres de variable duplicados en las cajas",
-        )
+    _validar_definicion(body)
     try:
         datos = body.model_dump()
         plantilla = actualizar_plantilla(plantilla_id, datos)
@@ -196,8 +242,39 @@ async def construir_template_desde_doc(
     settings.templates_dir.mkdir(parents=True, exist_ok=True)
     (settings.templates_dir / nombre_archivo).write_bytes(template_bytes)
 
+    # Persistir el mapeo y el Word de referencia para poder reeditar el
+    # template sin volver a subir el archivo ni reescribir los textos.
+    referencias_dir = settings.data_dir / "referencias"
+    referencias_dir.mkdir(parents=True, exist_ok=True)
+    (referencias_dir / f"{plantilla_id}.docx").write_bytes(contenido)
+    actualizar_plantilla(plantilla_id, {
+        "reemplazos_template": mapa,
+        "doc_referencia": archivo.filename or "documento.docx",
+    })
+
     logger.info("Template construido con reemplazos: %s → %s", list(mapa.keys()), nombre_archivo)
     return {"archivo": nombre_archivo, "variables": list(mapa.keys())}
+
+
+@router.get(
+    "/{plantilla_id}/template/doc-referencia",
+    summary="Descargar el Word de referencia con el que se construyó el template",
+)
+def descargar_doc_referencia(plantilla_id: str):
+    try:
+        plantilla = obtener_plantilla(plantilla_id)
+    except PlantillaNoEncontradaError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"Plantilla '{plantilla_id}' no encontrada")
+
+    ruta = settings.data_dir / "referencias" / f"{plantilla_id}.docx"
+    if not ruta.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="No hay documento de referencia guardado")
+
+    return FileResponse(path=str(ruta),
+                        filename=plantilla.get("doc_referencia", "documento.docx"),
+                        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
 @router.post(

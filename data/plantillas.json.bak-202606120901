@@ -1,0 +1,379 @@
+{
+  "4fb14239-cb2a-443d-b4a8-cd0d78fb252b": {
+    "nombre": "Generali1",
+    "aseguradora": "generali",
+    "tipo_poliza": "desgravamen",
+    "cajas": [
+      {
+        "nombre": "numero_poliza",
+        "pagina": 0,
+        "x": 151.0,
+        "y": 179.0,
+        "ancho": 53.0,
+        "alto": 18.0
+      },
+      {
+        "nombre": "fecha_inicio",
+        "pagina": 0,
+        "x": 308.0,
+        "y": 250.0,
+        "ancho": 71.0,
+        "alto": 15.0
+      },
+      {
+        "nombre": "fecha_fin",
+        "pagina": 0,
+        "x": 307.0,
+        "y": 267.0,
+        "ancho": 77.0,
+        "alto": 14.0
+      },
+      {
+        "nombre": "cobertura_muerte_cualquier_causa",
+        "pagina": 1,
+        "x": 61.0,
+        "y": 687.0,
+        "ancho": 162.0,
+        "alto": 12.0
+      },
+      {
+        "nombre": "cobertura_incapacidad",
+        "pagina": 1,
+        "x": 62.0,
+        "y": 714.0,
+        "ancho": 186.0,
+        "alto": 12.0
+      },
+      {
+        "nombre": "suma_asegurada",
+        "pagina": 1,
+        "x": 339.0,
+        "y": 713.0,
+        "ancho": 65.0,
+        "alto": 14.0
+      },
+      {
+        "nombre": "contratante",
+        "pagina": 1,
+        "x": 41.0,
+        "y": 253.0,
+        "ancho": 372.0,
+        "alto": 17.0
+      },
+      {
+        "nombre": "beneficiario_acreedor",
+        "pagina": 1,
+        "x": 39.0,
+        "y": 286.0,
+        "ancho": 381.0,
+        "alto": 22.0
+      },
+      {
+        "nombre": "incapacidad_total_parte1",
+        "pagina": 2,
+        "x": 41.0,
+        "y": 690.0,
+        "ancho": 421.0,
+        "alto": 66.0
+      },
+      {
+        "nombre": "listado_limites_edad_mcc",
+        "pagina": 2,
+        "x": 38.0,
+        "y": 481.0,
+        "ancho": 436.0,
+        "alto": 49.0
+      },
+      {
+        "nombre": "mcc",
+        "pagina": 2,
+        "x": 39.0,
+        "y": 607.0,
+        "ancho": 447.0,
+        "alto": 31.0
+      },
+      {
+        "nombre": "limite_edad_incapacidad",
+        "pagina": 2,
+        "x": 38.0,
+        "y": 543.0,
+        "ancho": 336.0,
+        "alto": 33.0
+      },
+      {
+        "nombre": "exclusiones_mcc",
+        "pagina": 2,
+        "x": 38.0,
+        "y": 650.0,
+        "ancho": 437.0,
+        "alto": 23.0
+      },
+      {
+        "nombre": "incapacidad_total_parte2",
+        "pagina": 3,
+        "x": 39.0,
+        "y": 155.0,
+        "ancho": 448.0,
+        "alto": 114.0
+      },
+      {
+        "nombre": "exclusiones_incapacidad",
+        "pagina": 3,
+        "x": 38.0,
+        "y": 284.0,
+        "ancho": 438.0,
+        "alto": 346.0
+      },
+      {
+        "nombre": "doc_requeridos_mcc",
+        "pagina": 4,
+        "x": 37.0,
+        "y": 212.0,
+        "ancho": 426.0,
+        "alto": 113.0
+      },
+      {
+        "nombre": "doc_req_incapacidad",
+        "pagina": 4,
+        "x": 39.0,
+        "y": 338.0,
+        "ancho": 432.0,
+        "alto": 141.0
+      }
+    ],
+    "campos_manuales": [
+      {
+        "nombre": "fecha_actual",
+        "valor_por_defecto": ""
+      }
+    ],
+    "id": "4fb14239-cb2a-443d-b4a8-cd0d78fb252b",
+    "creado_en": "2026-06-10 04:41:08.967120"
+  },
+  "8cef09d1-c707-4a71-829f-776bfcf37e0c": {
+    "nombre": "Test Generali Desgravamen",
+    "aseguradora": "generali",
+    "tipo_poliza": "desgravamen",
+    "cajas": [
+      {
+        "nombre": "numero_poliza",
+        "pagina": 0,
+        "x": 100.0,
+        "y": 50.0,
+        "ancho": 200.0,
+        "alto": 30.0
+      },
+      {
+        "nombre": "contratante",
+        "pagina": 1,
+        "x": 50.0,
+        "y": 150.0,
+        "ancho": 400.0,
+        "alto": 25.0
+      }
+    ],
+    "variables": [],
+    "campos_manuales": [],
+    "id": "8cef09d1-c707-4a71-829f-776bfcf37e0c",
+    "creado_en": "2026-06-12 04:16:51.539017"
+  },
+  "4d28ff4a-d0f2-4846-8078-5cfc852764dc": {
+    "nombre": "Test Generali Desgravamen",
+    "aseguradora": "generali",
+    "tipo_poliza": "desgravamen",
+    "cajas": [
+      {
+        "nombre": "numero_poliza",
+        "pagina": 0,
+        "x": 100.0,
+        "y": 50.0,
+        "ancho": 200.0,
+        "alto": 30.0
+      },
+      {
+        "nombre": "contratante",
+        "pagina": 1,
+        "x": 50.0,
+        "y": 150.0,
+        "ancho": 400.0,
+        "alto": 25.0
+      }
+    ],
+    "variables": [],
+    "campos_manuales": [],
+    "id": "4d28ff4a-d0f2-4846-8078-5cfc852764dc",
+    "creado_en": "2026-06-12 04:23:20.204864"
+  },
+  "91b9c026-db02-46eb-b7e3-6b61db5d6850": {
+    "nombre": "Generali",
+    "aseguradora": "generali",
+    "tipo_poliza": "desgravamen",
+    "cajas": [],
+    "variables": [
+      {
+        "nombre": "numero_poliza",
+        "descripcion": "Número identificador de la póliza, indicado como 'No.' en la carátula del documento."
+      },
+      {
+        "nombre": "nombre_contratante",
+        "descripcion": "Nombre completo del contratante y beneficiario acreedor, indicado en las Condiciones Particulares."
+      },
+      {
+        "nombre": "ramo",
+        "descripcion": "Tipo de seguro contratado, indicado en el campo 'RAMO' de las Condiciones Particulares."
+      },
+      {
+        "nombre": "fecha_inicio_vigencia",
+        "descripcion": "Fecha y hora de inicio de cobertura, indicada en el campo 'VIGENCIA DESDE' de la carátula."
+      },
+      {
+        "nombre": "fecha_fin_vigencia",
+        "descripcion": "Fecha y hora de término de cobertura, indicada en el campo 'VIGENCIA HASTA' de la carátula."
+      },
+      {
+        "nombre": "moneda",
+        "descripcion": "Moneda en que se expresan las sumas aseguradas y primas, indicada en el campo 'MONEDA'."
+      },
+      {
+        "nombre": "suma_asegurada_maxima",
+        "descripcion": "Monto máximo asegurado por asegurado incluyendo cúmulos, indicado en la sección 'MONTO MAXIMO ASEGURADO TOTAL CARTERA'."
+      },
+      {
+        "nombre": "cobertura_muerte_descripcion",
+        "descripcion": "Descripción de la cobertura de Muerte por Cualquier Causa, detallada en la sección 'AMPARO O COBERTURA BASICA'."
+      },
+      {
+        "nombre": "cobertura_itp_descripcion",
+        "descripcion": "Descripción de la cobertura de Incapacidad Total y Permanente, detallada en la sección homónima de las Condiciones Particulares."
+      },
+      {
+        "nombre": "listado_limites_edad_muerte",
+        "descripcion": "Edades mínima de ingreso, máxima de ingreso y máxima de permanencia para la cobertura de Muerte, detalladas en 'LIMITES DE EDAD MUERTE POR CUALQUIER CAUSA'."
+      },
+      {
+        "nombre": "listado_limites_edad_itp",
+        "descripcion": "Edades mínima de ingreso, máxima de ingreso y máxima de permanencia para la cobertura de Incapacidad Total y Permanente, detalladas en 'LIMITES DE EDAD INCAPACIDAD TOTAL Y PERMANENTE'."
+      },
+      {
+        "nombre": "listado_exclusiones_muerte",
+        "descripcion": "Listado de causas excluidas de la cobertura de Muerte, indicadas bajo 'EXCLUSIONES' de la cobertura básica."
+      },
+      {
+        "nombre": "listado_exclusiones_itp",
+        "descripcion": "Listado de causas excluidas de la cobertura de Incapacidad Total y Permanente, indicadas bajo 'EXCLUSIONES' de dicha cobertura."
+      },
+      {
+        "nombre": "plazo_aviso_siniestro",
+        "descripcion": "Número de días que tiene el asegurado o beneficiario para dar aviso del siniestro, indicado en la sección 'AVISO DE SINIESTRO'."
+      },
+      {
+        "nombre": "listado_docs_siniestro_muerte",
+        "descripcion": "Documentos mínimos requeridos para reclamar la cobertura de Muerte, listados en 'DOCUMENTOS REQUERIDOS MINIMOS EN CASO DE SINIESTRO - MUERTE'."
+      },
+      {
+        "nombre": "listado_docs_siniestro_itp",
+        "descripcion": "Documentos mínimos requeridos para reclamar la cobertura de Incapacidad Total y Permanente, listados en la sección correspondiente de documentos requeridos."
+      },
+      {
+        "nombre": "plazo_pago_indemnizacion",
+        "descripcion": "Número de días laborables para el pago de la indemnización una vez documentado el siniestro, indicado en los aclaratorios de la póliza."
+      },
+      {
+        "nombre": "broker",
+        "descripcion": "Nombre del corredor de seguros intermediario, indicado en el campo 'Broker de Seguros' de las Condiciones Particulares."
+      },
+      {
+        "nombre": "fecha_actual",
+        "descripcion": "fecha actual"
+      },
+      {
+        "nombre": "asegurado_contratante",
+        "descripcion": "Solo el nombre del contratante/asegurado titular de la póliza tal como aparece (ej: FONDO DE JUBILACION DE LA CONTRALORIA GENERAL DEL ESTADO FCPC)"
+      },
+      {
+        "nombre": "beneficiario_acreedor",
+        "descripcion": "Solo el nombre del beneficiario acreedor tal como aparece en las condiciones particulares (ej: FONDO DE JUBILACION DE LA CONTRALORIA GENERAL DEL ESTADO FCPC)"
+      },
+      {
+        "nombre": "monto_maximo_asegurado",
+        "descripcion": "Solo la cifra del monto máximo asegurado por asegurado sin símbolo de moneda (ej: 200,000.00)"
+      },
+      {
+        "nombre": "nombre_cobertura_muerte",
+        "descripcion": "Solo el nombre de la cobertura de muerte tal como aparece en el documento (ej: Muerte por cualquier causa (natural y/o accidental))"
+      },
+      {
+        "nombre": "descripcion_muerte",
+        "descripcion": "Solo el párrafo que describe qué cubre la cobertura de muerte, tal como aparece bajo el encabezado MUERTE POR CUALQUIER CAUSA en el amparo básico"
+      },
+      {
+        "nombre": "exclusiones_muerte",
+        "descripcion": "Solo el texto de exclusiones correspondiente a la cobertura de muerte, tal como aparece inmediatamente después de la descripción de esa cobertura"
+      },
+      {
+        "nombre": "docs_siniestro_muerte",
+        "descripcion": "Solo el listado de documentos requeridos en caso de siniestro por muerte, tal como aparece bajo MUERTE POR CUALQUIER CAUSA en la sección de documentos requeridos, incluyendo los adicionales por muerte accidental"
+      },
+      {
+        "nombre": "nombre_cobertura_discapacidad",
+        "descripcion": "Solo el nombre de la cobertura de incapacidad tal como aparece en el documento (ej: Incapacidad Total y Permanente por cualquier causa)"
+      },
+      {
+        "nombre": "descripcion_discapacidad",
+        "descripcion": "Solo el párrafo que describe qué cubre la cobertura de incapacidad total y permanente, tal como aparece bajo el encabezado INCAPACIDAD TOTAL Y PERMANENTE en las condiciones particulares"
+      },
+      {
+        "nombre": "exclusiones_discapacidad",
+        "descripcion": "Solo el listado de exclusiones correspondiente a la cobertura de incapacidad total y permanente, tal como aparece bajo EXCLUSIONES de esa cobertura (ítems a hasta k)"
+      },
+      {
+        "nombre": "listado_limites_edad_discapacidad",
+        "descripcion": "Listado de los límites de edad para la cobertura de incapacidad, cada límite en su propio párrafo, tal como aparece bajo LIMITES DE EDAD INCAPACIDAD TOTAL Y PERMANENTE (ej: Edad mínima de ingreso: 18 años cumplidos / Edad máxima de ingreso: 69 años, 11 meses, 29 días / Edad máxima de permanencia: 70 años (exactos) al 100%)"
+      },
+      {
+        "nombre": "docs_siniestro_discapacidad",
+        "descripcion": "Solo el listado de documentos requeridos en caso de siniestro por incapacidad total y permanente, tal como aparece bajo INCAPACIDAD TOTAL Y PERMANENTE POR CUALQUIER CAUSA en la sección de documentos requeridos"
+      },
+      {
+        "nombre": "numero_referencia",
+        "descripcion": "Solo el número de referencia de las condiciones particulares, identificado con el prefijo 'REF.No.' (ej: BM863501)."
+      },
+      {
+        "nombre": "contratante",
+        "descripcion": "Solo el nombre completo del contratante y beneficiario acreedor tal como aparece en las condiciones particulares (ej: FONDO DE JUBILACION DE LA CONTRALORIA GENERAL DEL ESTADO FCPC)."
+      },
+      {
+        "nombre": "nombre_cobertura_incapacidad",
+        "descripcion": "Solo el nombre de la segunda cobertura tal como aparece en el detalle de coberturas (ej: Incapacidad Total y Permanente por cualquier causa)."
+      },
+      {
+        "nombre": "descripcion_incapacidad",
+        "descripcion": "Párrafo completo que describe qué cubre la cobertura de Incapacidad Total y Permanente, ubicado bajo el título 'INCAPACIDAD TOTAL Y PERMANENTE'. Devolver el texto íntegro de ese párrafo (hasta 'determinada por la autoridad nacional competente de acuerdo con la ley')."
+      },
+      {
+        "nombre": "listado_limites_edad_incapacidad",
+        "descripcion": "Lista de límites de edad aplicables a la cobertura de Incapacidad Total y Permanente, ubicada bajo 'LIMITES DE EDAD INCAPACIDAD TOTAL Y PERMANENTE'. Devolver cada límite como un elemento separado: edad mínima de ingreso, edad máxima de ingreso y edad máxima de permanencia, uno por línea."
+      },
+      {
+        "nombre": "exclusiones_incapacidad",
+        "descripcion": "Lista completa de exclusiones de la cobertura de Incapacidad Total y Permanente, ubicadas bajo 'EXCLUSIONES:' dentro del bloque de esa cobertura (literales a) hasta k)). Devolver cada literal como elemento separado, uno por línea."
+      },
+      {
+        "nombre": "docs_siniestro_incapacidad",
+        "descripcion": "Lista de documentos requeridos en caso de siniestro por Incapacidad Total y Permanente, ubicada bajo 'INCAPACIDAD TOTAL Y PERMANENTE POR CUALQUIER CAUSA' en la sección de documentos requeridos. Devolver cada documento como un elemento separado, uno por línea."
+      }
+    ],
+    "campos_manuales": [
+      {
+        "nombre": "identificacion",
+        "valor_por_defecto": ""
+      },
+      {
+        "nombre": "fecha_nacimiento",
+        "valor_por_defecto": ""
+      }
+    ],
+    "id": "91b9c026-db02-46eb-b7e3-6b61db5d6850",
+    "creado_en": "2026-06-12 04:54:55.926797"
+  }
+}

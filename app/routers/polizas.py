@@ -68,11 +68,34 @@ async def upload_poliza(
 
     # Extraer
     from app.models.plantilla import Caja
-    cajas = [Caja(**c) for c in plantilla_dict["cajas"]]
+    cajas = [Caja(**c) for c in plantilla_dict.get("cajas", [])]
     campos_manuales = plantilla_dict.get("campos_manuales", [])
 
+    # Qué extraer: definiciones nuevas (nombre + descripción) o, en
+    # plantillas antiguas, los nombres de las cajas.
+    definiciones = plantilla_dict.get("variables") or [
+        {"nombre": c.nombre, "descripcion": ""} for c in cajas
+    ]
+
     try:
-        resultado = extraer_variables(pdf_bytes, cajas, campos_manuales)
+        resultado = None
+        if settings.anthropic_api_key:
+            # Extracción automática con IA: tolera cambios de layout entre PDFs
+            try:
+                from app.services.extractor_llm import extraer_variables_llm
+                resultado = extraer_variables_llm(pdf_bytes, definiciones, campos_manuales)
+            except Exception as e:
+                logger.warning("Extracción IA falló: %s", e)
+                resultado = None
+        if resultado is None:
+            if not cajas:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="La extracción con IA no está disponible y esta "
+                           "plantilla no tiene cajas de respaldo. Revisa la "
+                           "ANTHROPIC_API_KEY del servidor.",
+                )
+            resultado = extraer_variables(pdf_bytes, cajas, campos_manuales)
     except PDFInvalidoError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
