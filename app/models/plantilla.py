@@ -43,6 +43,14 @@ class PlantillaCrear(BaseModel):
     cajas: list[Caja] = Field(default=[])
     variables: list[VariableDef] = Field(default=[])
     campos_manuales: list[CampoManual] = Field(default=[])
+    # Sub-campos de UNA cobertura (nombre, suma, descripción, exclusiones…).
+    # Si está vacío, la plantilla no usa el grupo repetible de coberturas y
+    # se comporta como antes. La IA devuelve una lista de coberturas, una por
+    # cada fila del cuadro de coberturas de la póliza (2, 3 o N). Se reutiliza
+    # la convención `listado_`: un sub-campo `listado_exclusiones` se separa en
+    # un párrafo por ítem. En el Word de salida se recorren con
+    # `{% for c in coberturas %}{{ c.nombre }}…{% endfor %}`.
+    coberturas_campos: list[VariableDef] = Field(default=[])
 
 
 class Plantilla(PlantillaCrear):
@@ -82,3 +90,7 @@ class ResultadoExtraccion(BaseModel):
     variables: list[Variable]
     paginas_procesadas: int
     advertencias: list[str] = []
+    # Lista de coberturas extraídas (una por fila del cuadro de coberturas).
+    # Cada dict mapea sub-campo → valor según plantilla.coberturas_campos.
+    # Vacía si la plantilla no define coberturas_campos.
+    coberturas: list[dict] = []

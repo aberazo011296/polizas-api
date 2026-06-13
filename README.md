@@ -3,11 +3,12 @@
 Backend FastAPI para la POC de generación de certificados individuales de pólizas de seguros.
 
 ## Estado POC
-- ✅ Extracción OCR de PDFs escaneados (Generali Ecuador)
-- ✅ CRUD de plantillas de extracción (almacenamiento JSON local)
+- ✅ Extracción OCR/IA de PDFs (Generali Ecuador)
+- ✅ CRUD de plantillas de extracción
 - ✅ Generación de certificados .docx con marcadores
-- ⏸️ MongoDB (pendiente MVP)
-- ⏸️ Autenticación (pendiente MVP)
+- ✅ Autenticación por token (`API_TOKEN`)
+- ✅ Persistencia en MongoDB (opcional, `STORAGE_BACKEND=mongo`) + auditoría —
+  ver [docs/adr/0001-persistencia-mongodb.md](docs/adr/0001-persistencia-mongodb.md)
 
 ## Requisitos previos
 
@@ -42,6 +43,38 @@ uvicorn app.main:app --reload
 ```
 
 Documentación interactiva: http://localhost:8000/docs
+
+## Persistencia: MongoDB local (opcional)
+
+Por defecto (`STORAGE_BACKEND=local`) no se necesita Mongo: las plantillas
+viven en `data/plantillas.json` y los `.docx` en filesystem.
+
+Para usar MongoDB (recomendado antes de desplegar en contenedores, ver el ADR):
+
+```bash
+# 1. Levantar solo Mongo (no la API) con Docker
+docker compose up -d mongo
+
+# 2. En .env:
+#    STORAGE_BACKEND=mongo
+#    MONGO_URI=mongodb://polizas:polizas_dev_pw@localhost:27017
+#    MONGO_DB_NAME=polizas
+
+# 3. Migrar las plantillas/templates existentes (una sola vez)
+venv/bin/python -m scripts.migrar_a_mongo
+
+# 4. Reiniciar uvicorn
+```
+
+Con `STORAGE_BACKEND=mongo` también se activa la colección `auditoria`
+(eventos de negocio: plantillas creadas/editadas, certificados generados).
+Consultar el historial de una plantilla: `GET /plantillas/{id}/auditoria`.
+
+**Réplica en contenedor (AWS):** la app no cambia — solo `MONGO_URI` pasa a
+apuntar a un Mongo gestionado (Atlas o Amazon DocumentDB) en vez de
+`localhost`, inyectado vía Secrets Manager/SSM. `docker compose --profile full
+up --build` corre la API en el mismo contenedor que se sube a ECS/Fargate,
+contra el Mongo local, para probar esa configuración antes de desplegar.
 
 ## Preparar el template .docx
 
@@ -149,7 +182,11 @@ polizas-api/
 │   │   ├── extractor.py     # OCR con PyMuPDF + Tesseract
 │   │   └── generador.py     # Relleno de template .docx
 │   └── storage/
-│       └── local.py         # JSON local (reemplazar por MongoDB en MVP)
+│       ├── __init__.py      # Selector local/mongo según STORAGE_BACKEND
+│       ├── local.py         # JSON + filesystem (default)
+│       ├── mongo.py         # Colección `plantillas` + GridFS
+│       ├── db.py            # Cliente MongoDB compartido
+│       └── auditoria.py     # Colección `auditoria` (eventos de negocio)
 ├── templates/               # Archivos .docx de salida por aseguradora
 ├── data/                    # plantillas.json (gitignored)
 ├── uploads/                 # PDFs temporales (gitignored)
@@ -165,8 +202,6 @@ funcionan correctamente a 200 DPI de renderizado.
 
 ## Limitaciones de la POC
 
-- Sin autenticación (MVP)
-- Sin cifrado de archivos (MVP)
-- Sin auditoría de accesos (MVP)
-- Sin cumplimiento LOPDP para datos reales (hardening)
+- Sin cifrado de archivos en reposo (depende de la config del cluster Mongo en producción)
+- Auditoría sin identidad de usuario individual (solo token compartido — `usuario` queda `null`)
 - Un solo tipo de póliza por aseguradora en el template .docx

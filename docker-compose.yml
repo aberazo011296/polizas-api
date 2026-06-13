@@ -1,0 +1,48 @@
+# Entorno de desarrollo local: MongoDB (+ opcionalmente la API en contenedor).
+#
+# Uso típico (recomendado): solo levantar Mongo, y correr la API con
+# `venv/bin/uvicorn app.main:app --reload` como hasta ahora.
+#
+#   docker compose up -d mongo
+#
+# En `.env`:
+#   MONGO_URI=mongodb://polizas:polizas_dev_pw@localhost:27017
+#   MONGO_DB_NAME=polizas
+#   STORAGE_BACKEND=mongo
+#
+# Para probar la API también en contenedor (igual a como correrá en AWS):
+#
+#   docker compose --profile full up --build
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: polizas-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-polizas}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-polizas_dev_pw}
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME:-polizas}
+    volumes:
+      - mongo_data:/data/db
+
+  app:
+    build: .
+    container_name: polizas-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Dentro de la red de docker compose, "mongo" resuelve al contenedor.
+      MONGO_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-polizas}:${MONGO_INITDB_ROOT_PASSWORD:-polizas_dev_pw}@mongo:27017
+    depends_on:
+      - mongo
+    profiles:
+      - full
+
+volumes:
+  mongo_data:

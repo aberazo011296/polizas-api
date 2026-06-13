@@ -32,9 +32,19 @@ class Settings(BaseSettings):
     # Default: localhost del frontend en dev. En producción, el origin del host.
     cors_origins: str = "http://localhost:5173,http://localhost:5199"
 
+    # Backend de persistencia: "local" (plantillas.json + filesystem, default)
+    # o "mongo" (colección `plantillas` + GridFS + colección `auditoria`).
+    # Ver docs/adr/0001-persistencia-mongodb.md.
+    storage_backend: str = "local"
+    mongo_uri: str = "mongodb://localhost:27017"
+    mongo_db_name: str = "polizas"
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
+        # El mismo .env lo lee docker-compose (MONGO_INITDB_ROOT_* son solo
+        # para inicializar el contenedor de Mongo, no los usa la app).
+        "extra": "ignore",
     }
 
     @property

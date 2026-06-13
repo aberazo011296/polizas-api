@@ -13,7 +13,8 @@ from app.core.errors import (
 )
 from app.models.certificado import CertificadoRequest
 from app.services.generador import generar_certificado
-from app.storage.local import obtener_plantilla
+from app.storage import obtener_plantilla
+from app.storage import auditoria
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/certificados", tags=["certificados"])
@@ -55,6 +56,7 @@ def generar(body: CertificadoRequest):
             aseguradora=aseguradora,
             tipo_poliza=tipo_poliza,
             variables=body.variables,
+            coberturas=body.coberturas,
         )
     except PlantillaNoEncontradaError as e:
         raise HTTPException(
@@ -71,6 +73,17 @@ def generar(body: CertificadoRequest):
         logger.warning("Campos faltantes en certificado: %s", vars_faltantes)
 
     nombre_archivo = f"certificado_{aseguradora}_{tipo_poliza}.docx"
+
+    auditoria.registrar(
+        "certificado_generado",
+        plantilla_id=body.plantilla_id,
+        aseguradora=aseguradora,
+        tipo_poliza=tipo_poliza,
+        detalle={
+            "num_variables_usadas": len(vars_usadas),
+            "num_variables_faltantes": len(vars_faltantes),
+        },
+    )
 
     return Response(
         content=docx_bytes,

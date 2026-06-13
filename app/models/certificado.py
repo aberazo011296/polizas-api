@@ -8,6 +8,12 @@ class CertificadoRequest(BaseModel):
         ...,
         description="Mapa de nombre_variable -> valor a rellenar en el template"
     )
+    coberturas: list[dict] = Field(
+        default=[],
+        description="Lista de coberturas (cada una con sus sub-campos) para el "
+                    "loop {% for c in coberturas %} del template. Vacía si la "
+                    "plantilla no usa coberturas dinámicas.",
+    )
 
 
 class CertificadoResponse(BaseModel):

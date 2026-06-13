@@ -96,6 +96,7 @@ def extraer_variables_llm(
     pdf_bytes: bytes,
     definiciones: list[dict],
     campos_manuales: list = None,
+    coberturas_campos: list[dict] = None,
 ) -> ResultadoExtraccion:
     """
     Extrae las variables usando Claude sobre el texto completo del PDF.
@@ -103,6 +104,10 @@ def extraer_variables_llm(
     `definiciones` es una lista de {"nombre": ..., "descripcion": ...}.
     Si una definición no trae descripción, se usa el diccionario
     DESCRIPCIONES (plantillas antiguas) o el nombre como pista.
+
+    `coberturas_campos` (opcional): sub-campos de UNA cobertura. Si se pasa,
+    se pide al modelo una LISTA de coberturas (una por fila del cuadro de
+    coberturas de la póliza) y se devuelve en ResultadoExtraccion.coberturas.
 
     Verifica que cada valor devuelto exista realmente en el documento;
     si no, lo marca como 'dudoso'.
@@ -121,6 +126,44 @@ def extraer_variables_llm(
         for d in definiciones
     )
 
+    coberturas_campos = coberturas_campos or []
+    instruccion_coberturas = ""
+    if coberturas_campos:
+        campos_desc = "\n".join(
+            "    - {}: {}".format(
+                c["nombre"],
+                c.get("descripcion") or c["nombre"].replace("_", " "),
+            )
+            for c in coberturas_campos
+        )
+        instruccion_coberturas = (
+            "\n\nAdemás, la póliza tiene un CUADRO DE COBERTURAS con una o más "
+            "coberturas (ej: muerte, incapacidad/discapacidad, anticipo de "
+            "enfermedades graves, gastos funerarios…). Devuelve una entrada por "
+            "CADA cobertura que realmente exista en este documento, en una clave "
+            "\"coberturas\" cuyo valor es una lista de objetos. Cada objeto tiene "
+            "estos sub-campos:\n" + campos_desc +
+            "\nReglas para llenar los sub-campos de cada cobertura:\n"
+            "- Si una cobertura tiene su propia sección TITULADA con su nombre "
+            "(ej: 'LIMITES DE EDAD MUERTE…', 'Exclusiones de Incapacidad…'), usa "
+            "esa.\n"
+            "- Si una cobertura NO tiene su sección propia titulada, pero existe "
+            "una sección GENÉRICA o COMPARTIDA sobre ese tema (ej: un bloque "
+            "'LIMITES DE EDAD:' sin nombre de cobertura, o condiciones de edad "
+            "generales que aparecen una sola vez), usa ESE bloque genérico como "
+            "valor para esa cobertura. Es común que a una cobertura (típicamente "
+            "la principal, muerte por cualquier causa) se le 'olvide' el título y "
+            "sus datos queden en la sección genérica: en ese caso ASÍGNALE la "
+            "sección genérica en lugar de dejarla vacía.\n"
+            "- Solo usa null si de verdad no hay ningún dato (ni propio ni "
+            "genérico) para ese sub-campo. No omitas la cobertura.\n"
+            "- El valor de cada sub-campo es SIEMPRE un string (texto), nunca un "
+            "array. Para los sub-campos que empiezan con 'listado_', pon cada "
+            "ítem en su propia línea separándolos con saltos de línea (\\n) "
+            "dentro del mismo string, no como lista JSON.\n"
+            "No inventes coberturas que no estén en el cuadro."
+        )
+
     client = Anthropic(api_key=settings.anthropic_api_key)
     respuesta = client.messages.create(
         model=settings.anthropic_model,
@@ -129,7 +172,7 @@ def extraer_variables_llm(
         messages=[{
             "role": "user",
             "content": (
-                f"Variables a extraer:\n{lista_vars}\n\n"
+                f"Variables a extraer:\n{lista_vars}{instruccion_coberturas}\n\n"
                 f"Texto de la póliza:\n<<<\n{texto_pdf}\n>>>"
             ),
         }],
@@ -210,56 +253,112 @@ def extraer_variables_llm(
             nota=nota,
         ))
 
+    # Coberturas: lista de objetos, una por fila del cuadro de coberturas.
+    # Cada sub-campo se limpia con la misma lógica que las variables planas
+    # (listado_ → un párrafo por ítem; resto → un solo párrafo).
+    coberturas: list[dict] = []
+    if coberturas_campos:
+        crudas = valores.get("coberturas")
+        if isinstance(crudas, list):
+            nombres_campos = [c["nombre"] for c in coberturas_campos]
+            for item in crudas:
+                if not isinstance(item, dict):
+                    continue
+                limpio_item: dict = {}
+                for campo in nombres_campos:
+                    valor_campo = item.get(campo)
+                    # El modelo a veces devuelve los listado_ como array JSON
+                    # (["a", "b"]) en vez de string; unirlos con saltos de línea
+                    # para no terminar con el repr de lista "['a', 'b']".
+                    if isinstance(valor_campo, list):
+                        valor_campo = "\n".join(
+                            str(x).strip() for x in valor_campo
+                            if x is not None and str(x).strip()
+                        )
+                    if valor_campo is None or not str(valor_campo).strip():
+                        limpio_item[campo] = ""
+                        continue
+                    valor_campo = str(valor_campo)
+                    if campo.startswith("listado_"):
+                        limpio_item[campo] = _limpiar_listado(valor_campo) or ""
+                    else:
+                        limpio_item[campo] = _limpiar_texto(valor_campo) or ""
+                # Solo conservar coberturas con al menos un sub-campo con valor
+                if any(v for v in limpio_item.values()):
+                    coberturas.append(limpio_item)
+        else:
+            advertencias.append("No se encontró el cuadro de coberturas en este PDF")
+
     return ResultadoExtraccion(
         plantilla_id="",
         variables=variables,
         paginas_procesadas=num_paginas,
         advertencias=advertencias,
+        coberturas=coberturas,
     )
 
 
 PROMPT_SUGERENCIA = """Eres un asistente que analiza pólizas de seguros para configurar \
 un sistema de generación de certificados individuales.
 
-Recibes el texto completo de una póliza. Tu tarea: proponer la lista de variables \
-(datos y secciones) que habría que extraer de pólizas como esta para llenar un \
-certificado individual.
+Recibes el texto completo de una póliza. Tu tarea: proponer cómo extraer sus datos,
+separando DOS grupos:
 
-Reglas:
-1. Nombres en snake_case, cortos y descriptivos (ej: numero_poliza, fecha_inicio, exclusiones).
-2. UNA variable = UN solo dato puntual o UNA sola sección de texto. Nunca agrupes varios \
-datos en una variable (mal: "coberturas" con toda la tabla; bien: una variable por el \
-nombre de cada cobertura y otra por su monto).
-2b. Cuando algo existe por cada cobertura (descripción, exclusiones, límites de edad, \
-documentos), usa un sufijo descriptivo derivado del nombre de la cobertura, nunca números: \
-bien: descripcion_muerte, exclusiones_discapacidad, docs_siniestro_muerte; \
-mal: descripcion_cobertura_1, exclusiones_cobertura_2.
-3. La descripción debe decir QUÉ es el dato, cómo reconocerlo en el documento, y QUÉ \
-devolver exactamente. Para datos puntuales empieza la descripción con "solo": \
-"solo el nombre de la cobertura tal como aparece (ej: Muerte por cualquier causa)", \
-"solo la cifra del monto sin símbolo de moneda (ej: 200,000.00)", "solo la fecha".
-4. Si una sección es una lista de condiciones cortas donde cada línea debe quedar en su \
-propio párrafo (ej: límites de edad), antepone "listado_" al nombre.
-5. Incluye los datos típicos de un certificado: identificación de la póliza, vigencia, \
-contratante/beneficiario, el nombre de cada cobertura por separado, el monto asegurado, \
-descripción de cada cobertura, límites de edad, exclusiones y documentos requeridos en \
-caso de siniestro. Omite lo que no aparezca en este documento.
-5b. OBLIGATORIO: por CADA cobertura que aparezca bajo "DEFINICIONES" (o sección \
-equivalente), crea una variable descripcion_<cobertura> cuyo valor sea el párrafo \
-completo que define esa cobertura (el texto que va entre el título de la cobertura y \
-sus "Exclusiones"). Ejemplo: descripcion_muerte = "La Compañía indemnizará al \
-Contratante hasta el valor asegurado...". Nunca omitas estas definiciones aunque la \
-lista de variables quede larga.
-6. Entre 8 y 30 variables; la cobertura completa de las secciones (definiciones, \
-exclusiones, límites) tiene prioridad sobre quedarse corto. No incluyas datos del \
-asegurado individual (nombre, cédula) — esos se llenan a mano.
-7. Responde ÚNICAMENTE con un array JSON: [{"nombre": "...", "descripcion": "..."}, ...]"""
+A) "variables": datos a nivel de la PÓLIZA (uno solo por póliza). Ej: número de \
+póliza, vigencia (inicio/fin), contratante, beneficiario/acreedor, número de endoso. \
+NO incluyas aquí nada que se repita por cobertura.
+
+B) "coberturas_campos": los SUB-CAMPOS de UNA cobertura, cuando la póliza tiene un \
+CUADRO DE COBERTURAS con una o más coberturas (ej: Muerte por cualquier causa, \
+Incapacidad/Discapacidad, Anticipo de Enfermedades Graves, Gastos funerarios…). \
+En vez de crear variables planas por cada cobertura (descripcion_muerte, \
+descripcion_incapacidad…), define UNA sola vez los sub-campos que tiene CUALQUIER \
+cobertura, y el sistema los repetirá por cada cobertura del cuadro (2, 3 o N). \
+Sub-campos típicos: nombre, suma_asegurada, descripcion, listado_exclusiones, \
+listado_limites_edad, listado_docs_siniestro. Si la póliza NO tiene un cuadro de \
+coberturas repetible, devuelve "coberturas_campos": [].
+
+Reglas de nombres y descripciones (aplican a ambos grupos):
+1. Nombres en snake_case, cortos y descriptivos (ej: numero_poliza, fecha_inicio).
+2. La descripción dice QUÉ es el dato, cómo reconocerlo y QUÉ devolver exactamente. \
+Para datos puntuales empieza con "solo": "solo la cifra del monto sin símbolo (ej: \
+200,000.00)", "solo la fecha". Para sub-campos de cobertura, descríbelos de forma \
+GENÉRICA (válida para cualquier cobertura), no atada al nombre de una en particular: \
+bien: "el párrafo que define esta cobertura"; mal: "la definición de muerte".
+3. Prefijo "listado_" cuando cada ítem debe quedar en su propio párrafo (exclusiones, \
+límites de edad, documentos requeridos).
+4. No incluyas datos del asegurado individual (nombre, cédula, fecha de nacimiento) — \
+esos se llenan a mano.
+5. En "variables", entre 5 y 15 datos de póliza. En "coberturas_campos", entre 3 y 7 \
+sub-campos. Omite lo que no aparezca en este documento.
+6. Responde ÚNICAMENTE con un objeto JSON con esta forma exacta:
+{"variables": [{"nombre": "...", "descripcion": "..."}, ...], \
+"coberturas_campos": [{"nombre": "...", "descripcion": "..."}, ...]}"""
 
 
-def sugerir_variables(pdf_bytes: bytes) -> list[dict]:
+def _limpiar_defs(crudas) -> list[dict]:
+    """Normaliza una lista de {nombre, descripcion} sugerida por la IA."""
+    limpias = []
+    for s in crudas or []:
+        if not isinstance(s, dict):
+            continue
+        nombre = re.sub(r"[^a-z0-9_]", "",
+                        str(s.get("nombre", "")).strip().lower().replace(" ", "_"))
+        if nombre:
+            limpias.append({"nombre": nombre,
+                            "descripcion": str(s.get("descripcion", "")).strip()})
+    return limpias
+
+
+def sugerir_variables(pdf_bytes: bytes) -> dict:
     """
-    Analiza un PDF de ejemplo y propone variables {nombre, descripcion}
-    para crear una plantilla. La persona luego edita la lista.
+    Analiza un PDF de ejemplo y propone:
+      - variables: datos a nivel póliza {nombre, descripcion}
+      - coberturas_campos: sub-campos de UNA cobertura (si hay cuadro repetible)
+    La persona luego edita ambas listas. Devuelve un dict con ambas claves.
+
+    Tolera que la IA devuelva el formato antiguo (un array plano de variables):
+    en ese caso coberturas_campos queda vacío.
     """
     if not settings.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY no configurada")
@@ -280,13 +379,15 @@ def sugerir_variables(pdf_bytes: bytes) -> list[dict]:
     bruto = respuesta.content[0].text.strip()
     bruto = re.sub(r"^```(?:json)?\s*|\s*```$", "", bruto)
     try:
-        sugeridas = json.loads(bruto)
+        data = json.loads(bruto)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Respuesta de IA no es JSON válido: {e}") from e
 
-    limpias = []
-    for s in sugeridas:
-        nombre = re.sub(r"[^a-z0-9_]", "", str(s.get("nombre", "")).strip().lower().replace(" ", "_"))
-        if nombre:
-            limpias.append({"nombre": nombre, "descripcion": str(s.get("descripcion", "")).strip()})
-    return limpias
+    # Formato nuevo: dict con variables + coberturas_campos.
+    # Formato antiguo (compatibilidad): array plano = solo variables.
+    if isinstance(data, list):
+        return {"variables": _limpiar_defs(data), "coberturas_campos": []}
+    return {
+        "variables": _limpiar_defs(data.get("variables")),
+        "coberturas_campos": _limpiar_defs(data.get("coberturas_campos")),
+    }

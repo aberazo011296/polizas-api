@@ -28,11 +28,29 @@ Las llamadas a la API de Claude se **mockean** (ver `tests/test_extractor_llm.py
 - Config por entorno en `.env` (ver `.env.example`). `VITE_API_URL` del frontend
   apunta aquí (default `http://localhost:8000`).
 
+## Persistencia (`app/storage/`)
+
+`STORAGE_BACKEND` (`.env`) selecciona el backend vía `app/storage/__init__.py`
+— los routers/servicios importan SIEMPRE de `app.storage`, nunca de
+`storage.local`/`storage.mongo` directo:
+
+- `local` (default, sin Mongo): `data/plantillas.json` + `.docx` en filesystem
+  (`app/storage/local.py`).
+- `mongo`: colección `plantillas` + `.docx` en GridFS (`app/storage/mongo.py`),
+  más colección `auditoria` (`app/storage/auditoria.py`) con eventos de negocio
+  (creación/edición/eliminación de plantillas, certificados generados — sin PII,
+  sin TTL). Requiere `MONGO_URI`/`MONGO_DB_NAME`.
+
+Para desarrollo local con Mongo: `docker compose up -d mongo` (ver
+`docker-compose.yml` y `.env.example`). Migración de datos existentes:
+`venv/bin/python -m scripts.migrar_a_mongo`. Detalle de la decisión y plan de
+despliegue en `docs/adr/0001-persistencia-mongodb.md`.
+
 ## Arquitectura (pipeline)
 
-1. **Plantilla** (`data/plantillas.json`): variables a extraer (`variables` con
-   nombre + descripción para la IA), `campos_manuales` y opcionalmente `cajas`
-   (coordenadas, modo antiguo). CRUD en `app/routers/plantillas.py`.
+1. **Plantilla**: variables a extraer (`variables` con nombre + descripción
+   para la IA), `campos_manuales` y opcionalmente `cajas` (coordenadas, modo
+   antiguo). CRUD en `app/routers/plantillas.py`, persistida vía `app.storage`.
 2. **Extracción** (`POST /polizas/upload`), tres estrategias en orden:
    - **IA** (`app/services/extractor_llm.py`): si hay `ANTHROPIC_API_KEY`, manda
      el texto del PDF a Claude con las variables de la plantilla.
@@ -44,6 +62,38 @@ Las llamadas a la API de Claude se **mockean** (ver `tests/test_extractor_llm.py
    template Word a partir de un Word de referencia con datos reales.
 
 `Variable.origen`: `extraido` (OCR), `extraido_directo`, `extraido_ia`, `manual`.
+
+### Coberturas como grupo repetible (lista dinámica)
+
+Una plantilla puede declarar `coberturas_campos: list[VariableDef]` (sub-campos
+de UNA cobertura: `nombre`, `suma_asegurada`, `descripcion`,
+`listado_exclusiones`, `listado_limites_edad`, `listado_docs_siniestro`…). Si no
+está vacío, la IA devuelve una **lista** de coberturas (una por fila del cuadro
+de coberturas de la póliza — 2, 3 o N) en `ResultadoExtraccion.coberturas`. La
+convención `listado_` aplica a los sub-campos igual que a las variables planas.
+`ProcesarPage` muestra una tarjeta editable por cobertura; la generación pasa
+`coberturas` al contexto docxtpl para recorrerlas con un loop.
+
+**Sintaxis del Word de salida (docxtpl) — gotcha importante:**
+- En **párrafos**: `{%p for c in coberturas %}` … `{%p endfor %}` (la `p` borra
+  el párrafo de control para no dejar líneas vacías).
+- En **tablas**: `{%tr for c in coberturas %}` y `{%tr endfor %}` van en **filas
+  separadas** (cada tag reemplaza su fila entera), con la fila de contenido
+  `{{c.nombre}}`/`{{c.suma_asegurada}}` **en medio**. Ponerlos en la misma fila
+  rompe con "Encountered unknown tag 'endfor'".
+- Dentro del loop se usa `{{c.<subcampo>}}`; los `\n` de los `listado_` se
+  expanden a párrafos vía `_br_a_parrafos`.
+
+**Creación de plantilla:** "Sugerir desde un PDF" (`POST /plantillas/sugerir-variables`,
+`sugerir_variables`) devuelve `{variables, coberturas_campos}`: separa los datos a
+nivel póliza de los sub-campos de cobertura, y propone el grupo repetible solo si
+detecta un cuadro de coberturas (si no, `coberturas_campos: []`). El wizard
+(`NuevaPlantillaPage`) tiene una sección **opcional** "Coberturas que se repiten"
+para definir/editar esos sub-campos. Es opcional: una plantilla sin
+`coberturas_campos` se comporta como antes (todo campo plano).
+**Pendiente:** el template builder (`/template/build`) aún no inserta los loops
+`{%p/%tr for%}` en el `.docx` automáticamente — para una plantilla dinámica nueva,
+los loops del Word se agregan a mano (ver más arriba).
 
 ## Convenciones clave
 

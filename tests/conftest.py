@@ -2,6 +2,14 @@
 Fixtures compartidas para la suite de tests.
 """
 import io
+import os
+
+# Forzar backend filesystem para los tests, sin importar STORAGE_BACKEND en
+# el .env del desarrollador (p.ej. si está en "mongo" para correr localmente).
+# El selector de app/storage/__init__.py resuelve a nivel de import, así que
+# debe fijarse antes de importar app.main. Los tests de Mongo (mongomock)
+# trabajan directo contra app.storage.mongo, sin pasar por este selector.
+os.environ.setdefault("STORAGE_BACKEND", "local")
 
 import pytest
 from docx import Document

@@ -153,6 +153,52 @@ class TestExtraerVariablesLLM:
         assert nombres["fecha_actual"].valor  # generado automáticamente
         assert nombres["nombre_asegurado"].valor == "Juan"
 
+    def test_extrae_lista_de_coberturas(self, monkeypatch):
+        respuesta = json.dumps({
+            "numero_poliza": "990664",
+            "coberturas": [
+                {"nombre": "Muerte por cualquier causa", "suma_asegurada": "200,000.00",
+                 "listado_exclusiones": "a) Suicidio\nb) Guerra"},
+                {"nombre": "Anticipo Enfermedades Graves", "suma_asegurada": "50%",
+                 "listado_exclusiones": "a) Preexistencias"},
+            ],
+        })
+        monkeypatch.setattr(extractor_llm, "Anthropic", _fake_anthropic(respuesta))
+        res = extraer_variables_llm(
+            _pdf_con_texto(),
+            [{"nombre": "numero_poliza", "descripcion": ""}],
+            coberturas_campos=[
+                {"nombre": "nombre", "descripcion": "nombre de la cobertura"},
+                {"nombre": "suma_asegurada", "descripcion": "monto"},
+                {"nombre": "listado_exclusiones", "descripcion": "exclusiones"},
+            ],
+        )
+        assert len(res.coberturas) == 2
+        assert res.coberturas[0]["nombre"] == "Muerte por cualquier causa"
+        assert res.coberturas[1]["suma_asegurada"] == "50%"
+        # listado_ se separa en párrafos (\n entre ítems)
+        assert "\n" in res.coberturas[0]["listado_exclusiones"]
+
+    def test_sin_coberturas_campos_lista_vacia(self, monkeypatch):
+        respuesta = json.dumps({"numero_poliza": "990664"})
+        monkeypatch.setattr(extractor_llm, "Anthropic", _fake_anthropic(respuesta))
+        res = extraer_variables_llm(
+            _pdf_con_texto(), [{"nombre": "numero_poliza", "descripcion": ""}]
+        )
+        assert res.coberturas == []
+
+    def test_coberturas_no_lista_genera_advertencia(self, monkeypatch):
+        # El modelo no devolvió "coberturas" aunque la plantilla las pedía
+        respuesta = json.dumps({"numero_poliza": "990664"})
+        monkeypatch.setattr(extractor_llm, "Anthropic", _fake_anthropic(respuesta))
+        res = extraer_variables_llm(
+            _pdf_con_texto(),
+            [{"nombre": "numero_poliza", "descripcion": ""}],
+            coberturas_campos=[{"nombre": "nombre", "descripcion": "x"}],
+        )
+        assert res.coberturas == []
+        assert any("cuadro de coberturas" in a for a in res.advertencias)
+
 
 # ── sugerir_variables ────────────────────────────────────────────────────────
 
@@ -166,17 +212,35 @@ class TestSugerirVariables:
         with pytest.raises(RuntimeError):
             sugerir_variables(_pdf_con_texto())
 
-    def test_devuelve_lista_limpia(self, monkeypatch):
-        respuesta = json.dumps([
-            {"nombre": "Numero Poliza", "descripcion": "el número"},
-            {"nombre": "fecha_inicio", "descripcion": "vigencia"},
-        ])
+    def test_formato_nuevo_variables_y_coberturas(self, monkeypatch):
+        respuesta = json.dumps({
+            "variables": [
+                {"nombre": "Numero Poliza", "descripcion": "el número"},
+                {"nombre": "fecha_inicio", "descripcion": "vigencia"},
+            ],
+            "coberturas_campos": [
+                {"nombre": "nombre", "descripcion": "nombre de la cobertura"},
+                {"nombre": "listado_exclusiones", "descripcion": "exclusiones"},
+            ],
+        })
         monkeypatch.setattr(extractor_llm, "Anthropic", _fake_anthropic(respuesta))
         out = sugerir_variables(_pdf_con_texto())
-        nombres = [o["nombre"] for o in out]
+        nombres = [o["nombre"] for o in out["variables"]]
         # "Numero Poliza" se normaliza a snake_case sin espacios
         assert "numero_poliza" in nombres
         assert "fecha_inicio" in nombres
+        cobs = [o["nombre"] for o in out["coberturas_campos"]]
+        assert cobs == ["nombre", "listado_exclusiones"]
+
+    def test_formato_antiguo_array_plano(self, monkeypatch):
+        # Compatibilidad: si la IA devuelve un array plano, va todo a variables
+        respuesta = json.dumps([
+            {"nombre": "numero_poliza", "descripcion": "el número"},
+        ])
+        monkeypatch.setattr(extractor_llm, "Anthropic", _fake_anthropic(respuesta))
+        out = sugerir_variables(_pdf_con_texto())
+        assert [o["nombre"] for o in out["variables"]] == ["numero_poliza"]
+        assert out["coberturas_campos"] == []
 
     def test_respuesta_no_json_lanza_error(self, monkeypatch):
         monkeypatch.setattr(extractor_llm, "Anthropic", _fake_anthropic("nope"))

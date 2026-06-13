@@ -49,7 +49,7 @@ Leyenda: ✅ cubierto en código · 🟡 parcial / depende del despliegue · ⚪
 | **A06** | Vulnerable & Outdated Components | ✅ | Auditoría ejecutada: frontend `npm audit` = 0; backend `pip-audit` reducido de 16 CVEs a 0. Ver §4. **Requiere repetición periódica.** |
 | **A07** | Identification & Auth Failures | 🟡 | Token con comparación segura. Pendiente: política de token fuerte y rotación gestionada por el host. |
 | **A08** | Software & Data Integrity Failures | ✅ | Sin deserialización insegura (no `pickle`/`yaml.load`/`eval`). |
-| **A09** | Security Logging & Monitoring | 🟡 | Logging básico (registra **solo nombres de variables**, no valores PII). Pendiente: audit trail de subidas y generación de certificados (quién/cuándo). |
+| **A09** | Security Logging & Monitoring | 🟡 | Logging básico a stdout (registra **solo nombres de variables**, no valores PII). Con `STORAGE_BACKEND=mongo`, colección `auditoria` registra eventos de negocio (creación/edición/eliminación de plantillas, generación de certificados) — ver §3 y `docs/adr/0001-persistencia-mongodb.md`. Pendiente: identidad de usuario individual (hoy `usuario` queda `null`, solo hay token compartido) y envío de logs operacionales a CloudWatch en producción. |
 | **A10** | SSRF | ⚪ | No hay peticiones a URLs controladas por el usuario. |
 
 ---
@@ -90,6 +90,21 @@ Leyenda: ✅ cubierto en código · 🟡 parcial / depende del despliegue · ⚪
 - **Rate limiting** (anti-fuerza-bruta / ráfagas): se hace en el **proxy /
   API gateway** del host, no en la app (ver `.env.example`).
 
+### Persistencia y auditoría (A09)
+- `STORAGE_BACKEND` (`local` por defecto, `mongo` en producción) selecciona
+  la implementación en `app/storage/__init__.py` — `local.py` (filesystem) o
+  `mongo.py` (colección `plantillas` + GridFS para `.docx`). Ver
+  `docs/adr/0001-persistencia-mongodb.md`.
+- Colección `auditoria` (`app/storage/auditoria.py`): registra eventos de
+  negocio (`plantilla_creada/editada/eliminada`, `certificado_generado`,
+  `template_construido`) con `plantilla_id`, `aseguradora`, `tipo_poliza` y
+  `timestamp` — **nunca valores de variables extraídas (PII)**. Sin TTL
+  (retención por requisito de trazabilidad LOPDP). `registrar()` es
+  best-effort: nunca bloquea la operación de negocio si Mongo falla.
+- Credenciales de Mongo (`MONGO_URI`) van por variables de entorno /
+  Secrets Manager — nunca en la imagen ni en git, igual que `API_TOKEN` y
+  `ANTHROPIC_API_KEY`.
+
 ---
 
 ## 4. Gestión de dependencias (A06) — proceso obligatorio
@@ -128,9 +143,15 @@ infraestructura productiva:
 - [ ] **Rate limiting** en nginx / API gateway (ej. `limit_req_zone`,
       `client_max_body_size`).
 - [ ] **Cifrado de PII en reposo** (documentos de referencia y datos
-      extraídos) + **política de retención/purga** conforme a la LOPDP.
-- [ ] **Audit trail** de subidas y generación de certificados.
+      extraídos) + **política de retención/purga** conforme a la LOPDP. Con
+      `STORAGE_BACKEND=mongo`, esto recae en la configuración de cifrado en
+      reposo del cluster (ej. encryption-at-rest de MongoDB Atlas/Enterprise).
+- [x] **Audit trail** de generación de certificados y cambios de plantilla:
+      colección `auditoria` (ver §3, requiere `STORAGE_BACKEND=mongo`).
+      Pendiente: identidad de usuario individual (hoy `usuario=null`).
 - [ ] Separación de roles si hay múltiples tipos de usuario.
+- [ ] Logs operacionales (stdout) → CloudWatch Logs en el contenedor (driver
+      `awslogs`), con retención corta — distinto de la colección `auditoria`.
 
 ---
 

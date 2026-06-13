@@ -10,23 +10,38 @@ import re
 import zipfile
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 from app.core.config import settings
 from app.core.errors import PlantillaNoEncontradaError
 from app.core.paths import ruta_template_docx
 from app.models.plantilla import Plantilla, PlantillaCrear, PlantillaResumen
 from app.services.template_builder import construir_template
-from app.storage.local import (
+from app.storage import (
     actualizar_plantilla,
     eliminar_plantilla,
+    guardar_archivo_template,
+    guardar_doc_referencia,
     guardar_plantilla,
     listar_plantillas,
+    obtener_archivo_template,
+    obtener_doc_referencia,
     obtener_plantilla,
 )
+from app.storage import auditoria
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/plantillas", tags=["plantillas"])
+
+DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def _docx_response(contenido: bytes, nombre_archivo: str) -> Response:
+    return Response(
+        content=contenido,
+        media_type=DOCX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"'},
+    )
 
 
 def _validar_tamano_docx(contenido: bytes) -> None:
@@ -113,6 +128,13 @@ def crear(body: PlantillaCrear):
     plantilla = Plantilla(**body.model_dump())
     guardar_plantilla(plantilla.model_dump())
     logger.info("Nueva plantilla creada: %s (%s)", plantilla.nombre, plantilla.id)
+    auditoria.registrar(
+        "plantilla_creada",
+        plantilla_id=plantilla.id,
+        aseguradora=plantilla.aseguradora,
+        tipo_poliza=plantilla.tipo_poliza,
+        detalle={"num_variables": len(plantilla.variables)},
+    )
     return plantilla
 
 
@@ -150,7 +172,7 @@ async def sugerir_variables_endpoint(
     from app.core.errors import PDFInvalidoError
     from app.services.extractor_llm import sugerir_variables
     try:
-        variables = sugerir_variables(pdf_bytes)
+        sugerencia = sugerir_variables(pdf_bytes)
     except PDFInvalidoError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     except Exception as e:
@@ -160,7 +182,8 @@ async def sugerir_variables_endpoint(
             detail=f"No se pudieron sugerir variables: {e}",
         )
 
-    return {"variables": variables}
+    # {"variables": [...], "coberturas_campos": [...]}
+    return sugerencia
 
 
 @router.get(
@@ -178,6 +201,25 @@ def obtener(plantilla_id: str):
         )
 
 
+@router.get(
+    "/{plantilla_id}/auditoria",
+    summary="Historial de auditoría de una plantilla",
+)
+def obtener_auditoria(plantilla_id: str):
+    """
+    Eventos de auditoría (creación, ediciones, certificados generados, etc.)
+    para esta plantilla. Vacío si STORAGE_BACKEND no es "mongo".
+    """
+    try:
+        obtener_plantilla(plantilla_id)
+    except PlantillaNoEncontradaError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Plantilla '{plantilla_id}' no encontrada",
+        )
+    return {"eventos": auditoria.historial(plantilla_id)}
+
+
 @router.put(
     "/{plantilla_id}",
     summary="Actualizar plantilla existente",
@@ -188,12 +230,19 @@ def actualizar(plantilla_id: str, body: PlantillaCrear):
     try:
         datos = body.model_dump()
         plantilla = actualizar_plantilla(plantilla_id, datos)
-        return plantilla
     except PlantillaNoEncontradaError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Plantilla '{plantilla_id}' no encontrada",
         )
+    auditoria.registrar(
+        "plantilla_editada",
+        plantilla_id=plantilla_id,
+        aseguradora=plantilla["aseguradora"],
+        tipo_poliza=plantilla["tipo_poliza"],
+        detalle={"num_variables": len(plantilla.get("variables") or [])},
+    )
+    return plantilla
 
 
 @router.get(
@@ -207,15 +256,14 @@ def descargar_template(plantilla_id: str):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail=f"Plantilla '{plantilla_id}' no encontrada")
 
-    ruta = ruta_template_docx(plantilla["aseguradora"], plantilla["tipo_poliza"])
-    nombre_archivo = ruta.name
+    nombre_archivo = ruta_template_docx(plantilla["aseguradora"], plantilla["tipo_poliza"]).name
+    contenido = obtener_archivo_template(plantilla["aseguradora"], plantilla["tipo_poliza"])
 
-    if not ruta.exists():
+    if contenido is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="No hay template subido para esta plantilla")
 
-    return FileResponse(path=str(ruta), filename=nombre_archivo,
-                        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    return _docx_response(contenido, nombre_archivo)
 
 
 @router.post(
@@ -256,22 +304,25 @@ async def construir_template_desde_doc(
     template_bytes = construir_template(contenido, mapa, variables_bloque)
     template_bytes = _limpiar_template_docx(template_bytes)
 
-    ruta = ruta_template_docx(plantilla["aseguradora"], plantilla["tipo_poliza"])
-    nombre_archivo = ruta.name
-    settings.templates_dir.mkdir(parents=True, exist_ok=True)
-    ruta.write_bytes(template_bytes)
+    nombre_archivo = ruta_template_docx(plantilla["aseguradora"], plantilla["tipo_poliza"]).name
+    guardar_archivo_template(plantilla["aseguradora"], plantilla["tipo_poliza"], template_bytes)
 
     # Persistir el mapeo y el Word de referencia para poder reeditar el
     # template sin volver a subir el archivo ni reescribir los textos.
-    referencias_dir = settings.data_dir / "referencias"
-    referencias_dir.mkdir(parents=True, exist_ok=True)
-    (referencias_dir / f"{plantilla_id}.docx").write_bytes(contenido)
+    guardar_doc_referencia(plantilla_id, contenido)
     actualizar_plantilla(plantilla_id, {
         "reemplazos_template": mapa,
         "doc_referencia": archivo.filename or "documento.docx",
     })
 
     logger.info("Template construido con reemplazos: %s → %s", list(mapa.keys()), nombre_archivo)
+    auditoria.registrar(
+        "template_construido",
+        plantilla_id=plantilla_id,
+        aseguradora=plantilla["aseguradora"],
+        tipo_poliza=plantilla["tipo_poliza"],
+        detalle={"variables": list(mapa.keys())},
+    )
     return {"archivo": nombre_archivo, "variables": list(mapa.keys())}
 
 
@@ -286,14 +337,12 @@ def descargar_doc_referencia(plantilla_id: str):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail=f"Plantilla '{plantilla_id}' no encontrada")
 
-    ruta = settings.data_dir / "referencias" / f"{plantilla_id}.docx"
-    if not ruta.exists():
+    contenido = obtener_doc_referencia(plantilla_id)
+    if contenido is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="No hay documento de referencia guardado")
 
-    return FileResponse(path=str(ruta),
-                        filename=plantilla.get("doc_referencia", "documento.docx"),
-                        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    return _docx_response(contenido, plantilla.get("doc_referencia", "documento.docx"))
 
 
 @router.post(
@@ -320,14 +369,12 @@ async def subir_template(plantilla_id: str, archivo: UploadFile = File(...)):
             detail="El archivo debe ser un .docx",
         )
 
-    ruta = ruta_template_docx(plantilla["aseguradora"], plantilla["tipo_poliza"])
-    nombre_archivo = ruta.name
-    settings.templates_dir.mkdir(parents=True, exist_ok=True)
+    nombre_archivo = ruta_template_docx(plantilla["aseguradora"], plantilla["tipo_poliza"]).name
 
     contenido = await archivo.read()
     _validar_tamano_docx(contenido)
     contenido = _limpiar_template_docx(contenido)
-    ruta.write_bytes(contenido)
+    guardar_archivo_template(plantilla["aseguradora"], plantilla["tipo_poliza"], contenido)
 
     logger.info("Template subido: %s", nombre_archivo)
     return {"archivo": nombre_archivo}
@@ -346,3 +393,4 @@ def eliminar(plantilla_id: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Plantilla '{plantilla_id}' no encontrada",
         )
+    auditoria.registrar("plantilla_eliminada", plantilla_id=plantilla_id)

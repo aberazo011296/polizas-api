@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.core.errors import PDFDemasiadoGrandeError, PDFInvalidoError, PlantillaNoEncontradaError
 from app.models.plantilla import ResultadoExtraccion
 from app.services.extractor import extraer_variables
-from app.storage.local import obtener_plantilla
+from app.storage import obtener_plantilla
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/polizas", tags=["pólizas"])
@@ -76,6 +76,7 @@ async def upload_poliza(
     definiciones = plantilla_dict.get("variables") or [
         {"nombre": c.nombre, "descripcion": ""} for c in cajas
     ]
+    coberturas_campos = plantilla_dict.get("coberturas_campos", [])
 
     try:
         resultado = None
@@ -83,7 +84,9 @@ async def upload_poliza(
             # Extracción automática con IA: tolera cambios de layout entre PDFs
             try:
                 from app.services.extractor_llm import extraer_variables_llm
-                resultado = extraer_variables_llm(pdf_bytes, definiciones, campos_manuales)
+                resultado = extraer_variables_llm(
+                    pdf_bytes, definiciones, campos_manuales, coberturas_campos
+                )
             except Exception as e:
                 logger.warning("Extracción IA falló: %s", e)
                 resultado = None

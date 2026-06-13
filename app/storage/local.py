@@ -1,8 +1,8 @@
 """
-Almacenamiento local en JSON para la POC.
+Almacenamiento local en JSON + filesystem.
 
-En el MVP esto se reemplaza por MongoDB — la interfaz (save/get/list/delete)
-no cambia, solo la implementación.
+Backend por defecto (STORAGE_BACKEND=local). Para MongoDB + GridFS, ver
+app/storage/mongo.py — misma interfaz, ver docs/adr/0001-persistencia-mongodb.md.
 """
 import json
 import logging
@@ -11,6 +11,7 @@ from typing import Any
 
 from app.core.config import settings
 from app.core.errors import PlantillaNoEncontradaError
+from app.core.paths import ruta_template_docx
 
 logger = logging.getLogger(__name__)
 
@@ -82,3 +83,35 @@ def eliminar_plantilla(plantilla_id: str) -> None:
     del datos[plantilla_id]
     _escribir_plantillas(datos)
     logger.info("Plantilla eliminada: %s", plantilla_id)
+
+
+# --- Archivos .docx (filesystem) --------------------------------------------
+
+def guardar_archivo_template(aseguradora: str, tipo_poliza: str, contenido: bytes) -> None:
+    """Guarda el template .docx de salida para (aseguradora, tipo_poliza)."""
+    ruta = ruta_template_docx(aseguradora, tipo_poliza)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    ruta.write_bytes(contenido)
+
+
+def obtener_archivo_template(aseguradora: str, tipo_poliza: str) -> bytes | None:
+    """Retorna el template .docx de salida, o None si no existe."""
+    ruta = ruta_template_docx(aseguradora, tipo_poliza)
+    if not ruta.exists():
+        return None
+    return ruta.read_bytes()
+
+
+def guardar_doc_referencia(plantilla_id: str, contenido: bytes) -> None:
+    """Guarda el Word de referencia usado para construir el template."""
+    referencias_dir = settings.data_dir / "referencias"
+    referencias_dir.mkdir(parents=True, exist_ok=True)
+    (referencias_dir / f"{plantilla_id}.docx").write_bytes(contenido)
+
+
+def obtener_doc_referencia(plantilla_id: str) -> bytes | None:
+    """Retorna el Word de referencia de una plantilla, o None si no existe."""
+    ruta = settings.data_dir / "referencias" / f"{plantilla_id}.docx"
+    if not ruta.exists():
+        return None
+    return ruta.read_bytes()

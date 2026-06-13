@@ -6,7 +6,6 @@ plantilla .docx y devuelve el documento como bytes.
 """
 import io
 import logging
-from pathlib import Path
 
 import io as _io
 import zipfile as _zipfile
@@ -21,6 +20,7 @@ _PARSER_SEGURO = _etree.XMLParser(resolve_entities=False, no_network=True, load_
 from app.core.config import settings
 from app.core.errors import ErrorGeneracionDocumento, PlantillaNoEncontradaError
 from app.core.paths import ruta_template_docx
+from app.storage import obtener_archivo_template
 
 logger = logging.getLogger(__name__)
 
@@ -141,21 +141,11 @@ def _dividir_parrafo(body, para):
         body.insert(idx + i, p)
 
 
-def _ruta_template_docx(aseguradora: str, tipo_poliza: str) -> Path:
-    """
-    Construye la ruta al archivo .docx de salida para una combinación
-    aseguradora + tipo_poliza, sanitizada y contenida en templates_dir.
-
-    Convención de nombre: {aseguradora}_{tipo_poliza}.docx
-    Ejemplo: generali_desgravamen.docx
-    """
-    return ruta_template_docx(aseguradora, tipo_poliza)
-
-
 def generar_certificado(
     aseguradora: str,
     tipo_poliza: str,
     variables: dict[str, str],
+    coberturas: list[dict] | None = None,
 ) -> tuple[bytes, list[str], list[str]]:
     """
     Genera un certificado rellenando el template .docx.
@@ -164,20 +154,24 @@ def generar_certificado(
         aseguradora: Identificador de la aseguradora.
         tipo_poliza: Tipo de póliza.
         variables: Mapa {nombre_variable: valor}.
+        coberturas: Lista de coberturas (cada una un dict de sub-campos) que el
+            template recorre con `{% for c in coberturas %}`. Opcional.
 
     Returns:
         Tupla de (bytes_docx, variables_usadas, variables_faltantes)
     """
-    ruta = _ruta_template_docx(aseguradora, tipo_poliza)
+    coberturas = coberturas or []
+    contenido_template = obtener_archivo_template(aseguradora, tipo_poliza)
 
-    if not ruta.exists():
+    if contenido_template is None:
+        nombre = ruta_template_docx(aseguradora, tipo_poliza).name
         raise PlantillaNoEncontradaError(
-            f"No se encontró el template de salida: {ruta.name}. "
+            f"No se encontró el template de salida: {nombre}. "
             f"Coloca el archivo en {settings.templates_dir}/"
         )
 
     try:
-        tpl = DocxTemplate(str(ruta))
+        tpl = DocxTemplate(io.BytesIO(contenido_template))
     except Exception as e:
         raise ErrorGeneracionDocumento(f"Error abriendo template: {e}") from e
 
@@ -197,6 +191,10 @@ def generar_certificado(
     contexto = {}
 
     for nombre in variables_template:
+        # `coberturas` es la lista del loop {% for c in coberturas %}; se
+        # inyecta aparte más abajo, no es una variable plana faltante.
+        if nombre == "coberturas":
+            continue
         if nombre in variables and variables[nombre]:
             contexto[nombre] = variables[nombre]
             variables_usadas.append(nombre)
@@ -209,6 +207,10 @@ def generar_certificado(
     for nombre, valor in variables.items():
         if nombre not in contexto:
             contexto[nombre] = valor
+
+    # Lista de coberturas para el loop `{% for c in coberturas %}`.
+    # Se pasa siempre (lista vacía si no aplica) para que el loop no rompa.
+    contexto["coberturas"] = coberturas
 
     try:
         tpl.render(contexto, jinja_env=jinja_env)
