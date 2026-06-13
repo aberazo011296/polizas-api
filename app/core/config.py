@@ -20,10 +20,26 @@ class Settings(BaseSettings):
     # Tamaño máximo de PDF en bytes (10 MB)
     max_pdf_size_bytes: int = 10 * 1024 * 1024
 
+    # Tamaño máximo de template/documento .docx en bytes (10 MB)
+    max_docx_size_bytes: int = 10 * 1024 * 1024
+
+    # Token de acceso a la API. Lo provee el sistema del dueño (la app que
+    # embebe el frontend en un WebView lo inyecta como `Authorization: Bearer`).
+    # Si queda vacío (dev), la API NO exige token. En producción debe definirse.
+    api_token: str | None = None
+
+    # Orígenes permitidos para CORS (coma-separados en el .env).
+    # Default: localhost del frontend en dev. En producción, el origin del host.
+    cors_origins: str = "http://localhost:5173,http://localhost:5199"
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
     }
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     def model_post_init(self, __context):
         # Crear directorios si no existen

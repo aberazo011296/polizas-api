@@ -13,9 +13,14 @@ import zipfile as _zipfile
 from copy import deepcopy
 from lxml import etree as _etree
 from docxtpl import DocxTemplate
+from jinja2.sandbox import SandboxedEnvironment
+
+# Parser endurecido para XML de .docx subidos por el usuario (anti-XXE).
+_PARSER_SEGURO = _etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False)
 
 from app.core.config import settings
 from app.core.errors import ErrorGeneracionDocumento, PlantillaNoEncontradaError
+from app.core.paths import ruta_template_docx
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +52,7 @@ def _br_a_parrafos(docx_bytes: bytes) -> bytes:
 
 
 def _procesar_parrafos(xml_bytes: bytes) -> bytes:
-    root = _etree.fromstring(xml_bytes)
+    root = _etree.fromstring(xml_bytes, parser=_PARSER_SEGURO)
     body = root.find(f".//{{{_W}}}body")
     if body is None:
         return xml_bytes
@@ -139,13 +144,12 @@ def _dividir_parrafo(body, para):
 def _ruta_template_docx(aseguradora: str, tipo_poliza: str) -> Path:
     """
     Construye la ruta al archivo .docx de salida para una combinación
-    aseguradora + tipo_poliza.
+    aseguradora + tipo_poliza, sanitizada y contenida en templates_dir.
 
     Convención de nombre: {aseguradora}_{tipo_poliza}.docx
     Ejemplo: generali_desgravamen.docx
     """
-    nombre = f"{aseguradora.lower()}_{tipo_poliza.lower()}.docx"
-    return settings.templates_dir / nombre
+    return ruta_template_docx(aseguradora, tipo_poliza)
 
 
 def generar_certificado(
@@ -177,10 +181,14 @@ def generar_certificado(
     except Exception as e:
         raise ErrorGeneracionDocumento(f"Error abriendo template: {e}") from e
 
+    # Los templates .docx los sube el usuario: renderizar en un entorno Jinja
+    # con sandbox para neutralizar SSTI (acceso a __class__/__subclasses__, etc.).
+    jinja_env = SandboxedEnvironment()
+
     # Identificar qué variables espera el template
     # (puede fallar si el XML interno del doc tiene sintaxis Jinja2 inválida)
     try:
-        variables_template = set(tpl.undeclared_template_variables)
+        variables_template = set(tpl.get_undeclared_template_variables(jinja_env))
     except Exception:
         variables_template = set(variables.keys())
 
@@ -203,7 +211,7 @@ def generar_certificado(
             contexto[nombre] = valor
 
     try:
-        tpl.render(contexto)
+        tpl.render(contexto, jinja_env=jinja_env)
         buffer = io.BytesIO()
         tpl.save(buffer)
         buffer.seek(0)

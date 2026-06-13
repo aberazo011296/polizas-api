@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse
 
 from app.core.config import settings
 from app.core.errors import PlantillaNoEncontradaError
+from app.core.paths import ruta_template_docx
 from app.models.plantilla import Plantilla, PlantillaCrear, PlantillaResumen
 from app.services.template_builder import construir_template
 from app.storage.local import (
@@ -26,6 +27,16 @@ from app.storage.local import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/plantillas", tags=["plantillas"])
+
+
+def _validar_tamano_docx(contenido: bytes) -> None:
+    """Rechaza .docx que excedan el tamaño máximo configurado."""
+    if len(contenido) > settings.max_docx_size_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"El .docx excede el tamaño máximo de "
+                   f"{settings.max_docx_size_bytes // (1024 * 1024)} MB",
+        )
 
 
 def _limpiar_template_docx(contenido: bytes) -> bytes:
@@ -130,6 +141,12 @@ async def sugerir_variables_endpoint(
         )
 
     pdf_bytes = await archivo.read()
+    if len(pdf_bytes) > settings.max_pdf_size_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"El PDF excede el tamaño máximo de "
+                   f"{settings.max_pdf_size_bytes // (1024 * 1024)} MB",
+        )
     from app.core.errors import PDFInvalidoError
     from app.services.extractor_llm import sugerir_variables
     try:
@@ -190,8 +207,8 @@ def descargar_template(plantilla_id: str):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail=f"Plantilla '{plantilla_id}' no encontrada")
 
-    nombre_archivo = f"{plantilla['aseguradora'].lower()}_{plantilla['tipo_poliza'].lower()}.docx"
-    ruta = settings.templates_dir / nombre_archivo
+    ruta = ruta_template_docx(plantilla["aseguradora"], plantilla["tipo_poliza"])
+    nombre_archivo = ruta.name
 
     if not ruta.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
@@ -235,12 +252,14 @@ async def construir_template_desde_doc(
         variables_bloque = set()
 
     contenido = await archivo.read()
+    _validar_tamano_docx(contenido)
     template_bytes = construir_template(contenido, mapa, variables_bloque)
     template_bytes = _limpiar_template_docx(template_bytes)
 
-    nombre_archivo = f"{plantilla['aseguradora'].lower()}_{plantilla['tipo_poliza'].lower()}.docx"
+    ruta = ruta_template_docx(plantilla["aseguradora"], plantilla["tipo_poliza"])
+    nombre_archivo = ruta.name
     settings.templates_dir.mkdir(parents=True, exist_ok=True)
-    (settings.templates_dir / nombre_archivo).write_bytes(template_bytes)
+    ruta.write_bytes(template_bytes)
 
     # Persistir el mapeo y el Word de referencia para poder reeditar el
     # template sin volver a subir el archivo ni reescribir los textos.
@@ -301,11 +320,12 @@ async def subir_template(plantilla_id: str, archivo: UploadFile = File(...)):
             detail="El archivo debe ser un .docx",
         )
 
-    nombre_archivo = f"{plantilla['aseguradora'].lower()}_{plantilla['tipo_poliza'].lower()}.docx"
+    ruta = ruta_template_docx(plantilla["aseguradora"], plantilla["tipo_poliza"])
+    nombre_archivo = ruta.name
     settings.templates_dir.mkdir(parents=True, exist_ok=True)
-    ruta = settings.templates_dir / nombre_archivo
 
     contenido = await archivo.read()
+    _validar_tamano_docx(contenido)
     contenido = _limpiar_template_docx(contenido)
     ruta.write_bytes(contenido)
 

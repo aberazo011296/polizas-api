@@ -5,10 +5,11 @@ POC Semana 1-3: Extracción OCR + generación .docx.
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
+from app.core.security import verificar_token
 from app.routers import certificados, plantillas, polizas
 
 # Logging básico — en producción usar structlog o similar
@@ -38,19 +39,23 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — en POC permitir todo; en producción restringir a dominio del frontend
+# CORS — orígenes permitidos según el entorno (config: CORS_ORIGINS).
+# El WebView del host usa un origin conocido; nada de wildcard.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Routers
-app.include_router(polizas.router)
-app.include_router(plantillas.router)
-app.include_router(certificados.router)
+# Autenticación global: el host (WebView) inyecta `Authorization: Bearer`.
+# Si API_TOKEN no está configurado, verificar_token no exige nada (dev).
+# Los endpoints de salud quedan fuera para health-checks de infraestructura.
+_auth = [Depends(verificar_token)]
+app.include_router(polizas.router, dependencies=_auth)
+app.include_router(plantillas.router, dependencies=_auth)
+app.include_router(certificados.router, dependencies=_auth)
 
 
 @app.get("/", tags=["health"])

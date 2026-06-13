@@ -14,6 +14,10 @@ from copy import deepcopy
 
 from lxml import etree
 
+# Parser endurecido para XML proveniente de .docx subidos por el usuario:
+# sin entidades externas, sin DTD, sin red (defensa en profundidad anti-XXE).
+_PARSER_SEGURO = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False)
+
 logger = logging.getLogger(__name__)
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -61,7 +65,7 @@ def _reemplazar_en_xml(xml_bytes: bytes, items: list[tuple[str, str]]) -> bytes:
     {{variable}} y los demás se eliminan (al generar el certificado,
     \\n en el valor vuelve a crear los párrafos necesarios).
     """
-    root = etree.fromstring(xml_bytes)
+    root = etree.fromstring(xml_bytes, parser=_PARSER_SEGURO)
 
     items_simples = [(v, t) for v, t in items if "\n" not in t]
     items_multilinea = [(v, t) for v, t in items if "\n" in t]
